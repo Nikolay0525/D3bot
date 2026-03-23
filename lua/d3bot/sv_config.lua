@@ -30,20 +30,20 @@ D3bot.BotJumpAntichance = 25
 D3bot.BotDuckAntichance = 25
 D3bot.FaceTargetOffshootFactor = 0.2			-- Factor that reduces the offshoot when the target is within attack range. Increase value to prevent bots from "locking" onto target.
 
-D3bot.ZombiesPerPlayer = 0.3			-- Number of bot zombies per player.
-D3bot.ZombiesPerPlayerMax = 2.0			-- Limits amount of zombies to this zombie/player ratio. (Not including ZombiesCountAddition)
-D3bot.ZombiesPerPlayerWave = 0.20		-- Number of additional bot zombies every wave for every player on the server.
+D3bot.ZombiesPerPlayer = 0.5			-- Number of bot zombies per player.
+D3bot.ZombiesPerPlayerMax = 1000			-- Limits amount of zombies to this zombie/player ratio. (Not including ZombiesCountAddition)
+D3bot.ZombiesPerPlayerWave = 0			-- Number of additional bot zombies every wave for every player on the server.
 D3bot.ZombiesPerMinute = 0				-- Number of additional bot zombies every minute.
-D3bot.ZombiesPerWave = 0.4				-- Number of additional bot zombies every wave.
+D3bot.ZombiesPerWave = 0.5				-- Number of additional bot zombies every wave.
 D3bot.ZombiesCountAddition = 0			-- Number of additional bot zombies.
 D3bot.SurvivorsPerPlayer = 0--1.2		-- Survivor bots per total player (non bot) amount. They will only spawn pre round.
 D3bot.SurvivorCountAddition = 0			-- BotMod for survivor bots.
 
 -- Survivor (human) bots are currently not production ready.
-D3bot.SurvivorsEnabled = false			-- If true, survivor bots are allowed to exists by spawning at the beginning of a round (See SurvivorsPerPlayer and SurvivorCountAddition parameters) or by redeeming.
+D3bot.SurvivorsEnabled = false     			-- If true, survivor bots are allowed to exists by spawning at the beginning of a round (See SurvivorsPerPlayer and SurvivorCountAddition parameters) or by redeeming.
 
-D3bot.IsSelfRedeemEnabled = false		-- Enable or disable the !human command.
-D3bot.SelfRedeemWaveMax = 1				-- The maximum wave a player can use !human. (Setting it to 2 would allow the players to redeem in the first and second wave)
+D3bot.IsSelfRedeemEnabled = true 		-- Enable or disable the !human command.
+D3bot.SelfRedeemWaveMax = 6				-- The maximum wave a player can use !human. (Setting it to 2 would allow the players to redeem in the first and second wave)
 D3bot.StartBonus = nil					-- Number of additional points, that players get at the start of a round.
 
 D3bot.DisableBotCrows = false			-- Disable crows from being controlled by the bot.
@@ -56,7 +56,7 @@ D3bot.UseConsoleBots = false			-- If true, bots will be spawned "the old way". B
 										-- This may help if the gamemode doesn't fully support the new bot spawning.
 										-- Also, this will prevent the use of other custom bots alongside D3bot.
 
-D3bot.DisableNodeDamage = false			-- Prevents players taking damage from any "DMGPerSecond" parameter.
+D3bot.DisableNodeDamage = true 			-- Prevents players taking damage from any "DMGPerSecond" parameter.
 D3bot.NodeDamageInterval = 1			-- Time in seconds between taking damage from any "DMGPerSecond" parameter.
 
 D3bot.BotUpdateDelay = 1 				-- Delay in seconds on how long it takes for a bot to update. (Joining, leaving, suiciding, etc.)

@@ -32,6 +32,7 @@ end
 if SERVER then
 	include("d3bot/sv_config.lua")
 	include("d3bot/sv_utilities.lua")
+	include("d3bot/sv_zs_utilities.lua") -- add this here
 	include("d3bot/sv_names.lua")
 	include("d3bot/sv_path.lua")
 	include("d3bot/sv_extend_player.lua")

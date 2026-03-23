@@ -172,12 +172,34 @@ function meta:D3bot_RerollClass(classes)
 	if not GAMEMODE:GetWaveActive() then return end
 	--if self:GetZombieClassTable().Name == "Zombie Torso" then return end -- ???
 	if GAMEMODE.ZombieEscape or GAMEMODE.PantsMode or GAMEMODE:IsClassicMode() or GAMEMODE:IsBabyMode() then return end
+
+	-- Don't reroll class for baby bots (Gore Child/Shadow Child spawned by bosses)
+	if self.IsBabyBot or self.D3bot_BabyOwner then return end
+
+	-- Count current Flesh Creeper bots
+	local fleshCreeperCount = 0
+	local fleshCreeperHandler = D3bot.Handlers.Undead_Fleshcreeper
+	local maxFleshCreeperBots = fleshCreeperHandler and fleshCreeperHandler.MaxFleshCreeperBots or 2
+	for _, ply in ipairs(player.GetAll()) do
+		if IsValid(ply) and ply:IsBot() and ply:Alive() and ply:Team() == TEAM_UNDEAD then
+			local classTable = ply:GetZombieClassTable()
+			if classTable and classTable.Name == "Flesh Creeper" then
+				fleshCreeperCount = fleshCreeperCount + 1
+			end
+		end
+	end
+
 	local zombieClasses = {}
 	for _, class in ipairs(classes) do
 		local zombieClass = GAMEMODE.ZombieClasses[class]
 		if zombieClass then
 			if not zombieClass.Locked and (zombieClass.Unlocked or zombieClass.Wave <= GAMEMODE:GetWave()) then
-				table.insert(zombieClasses, zombieClass)
+				-- Skip Flesh Creeper if max limit reached
+				if class == "Flesh Creeper" and fleshCreeperCount >= maxFleshCreeperBots then
+					-- Don't add Flesh Creeper to the pool
+				else
+					table.insert(zombieClasses, zombieClass)
+				end
 			end
 		end
 	end
@@ -264,8 +286,14 @@ function meta:D3bot_InitializeOrReset()
 	---@field public BlockMovementUntil number? -- Blocks bot handlers from issuing any CUserCmd action until this point in time (CurTime()) has passed. Used by ladder handling logic (func_useableladder).
 	---@field public BlockedOnNode D3NavmeshNode? -- Blocks bot handlers from issuing any CUserCmd action until they leave the specified node. Used by ladder handling logic (func_useableladder).
 	---@field public IsOnLadder boolean -- When true, we are on a path that is defined as "ladder" according to the navmesh. This is used to make the bot issue special commands to leave the ladder when necessary.
+	---@field public Volatile table -- Handler-specific volatile state that is automatically reset on spawn/death. Use this for variables that don't need manual cleanup.
 	self.D3bot_Mem = self.D3bot_Mem or {}
 	local mem = self.D3bot_Mem
+
+	-- Reset all volatile (handler-specific) state automatically on spawn/death
+	-- Handlers should use mem.Volatile.* for variables that need automatic reset
+	-- This eliminates the need for scattered "mem.X = nil" statements in OnDeathFunction
+	mem.Volatile = {}
 
 	local considerPathLethality = math.random(1, D3bot.BotConsideringDeathCostAntichance) == 1
 
@@ -281,11 +309,14 @@ function meta:D3bot_InitializeOrReset()
 	mem.AngsOffshoot = angle_zero							-- Offshoot angle, to make bots movement more random.
 	mem.CanSeeTargetCache = nil								-- Cached result of visibility trace to current target.
 
-	mem.DontAttackTgt = nil									-- 
-	mem.TgtProximity = nil									-- 
-	mem.PosTgtProximity = nil								-- 
-	mem.NextCheckStuck = nil								-- 
-	mem.MajorStuckCounter = nil								-- 
+	mem.DontAttackTgt = nil									--
+	mem.TgtProximity = nil									--
+	mem.PosTgtProximity = nil								--
+	mem.NextCheckStuck = nil								--
+	mem.MajorStuckCounter = nil								--
+
+	-- NOTE: Handler-specific volatile variables (NestSpawn*, FleshcreeperState, etc.)
+	-- are automatically reset via mem.Volatile = {} above. No manual reset needed!
 
 	mem.IsCrab = false
 
@@ -304,12 +335,19 @@ function meta:D3bot_InitializeOrReset()
 		local weapon = self:GetActiveWeapon()
 		mem.IsCrab = (weapon.HitRecovery or weapon.SpitWindUp) and true or false
 
-		-- Calculate hull heights.
+		-- Calculate hull dimensions.
 
 		-- TODO: We could query the hulls and the jump power directly from the player entity instead of the zombie class table
 		local myClass = self:GetZombieClassTable()
 		mem.Height = (myClass.Hull and myClass.Hull[2].z or 72) * self:GetModelScale()
 		mem.CrouchHeight = (myClass.HullDuck and myClass.HullDuck[2].z or 36) * self:GetModelScale()
+
+		-- Calculate hull width from actual player hull (not class table)
+		-- This correctly handles zombie classes like Flesh Creeper that have non-standard hull sizes
+		local _, hullMaxs = self:GetHull()
+		local hullHalfWidthX = hullMaxs and math.abs(hullMaxs.x) or 16
+		local hullHalfWidthY = hullMaxs and math.abs(hullMaxs.y) or 16
+		mem.HullWidth = math.max(hullHalfWidthX, hullHalfWidthY) * 2 -- Full width (no model scale needed - GetHull returns actual dimensions)
 
 		-- Calculate jump heights.
 
@@ -354,7 +392,7 @@ function meta:D3bot_UpdatePath(pathCostFunction, heuristicCostFunction)
 	local node = mapNavMesh:GetNearestNodeOrNil(self:GetPos())
 	mem.TgtNodeOrNil = mem.NodeTgtOrNil or mapNavMesh:GetNearestNodeOrNil(mem.TgtOrNil and mem.TgtOrNil:GetPos() or mem.PosTgtOrNil)
 	if not node or not mem.TgtNodeOrNil then return end
-	local abilities = {Walk = true, Jump = mem.CrouchJumpHeight, Height = mem.CrouchHeight, Crab = mem.IsCrab}
+	local abilities = {Walk = true, Jump = mem.CrouchJumpHeight, Height = mem.CrouchHeight, Width = mem.HullWidth, Crab = mem.IsCrab}
 	---@type GWeapon|table
 	local weapon = self:GetActiveWeapon()
 	if weapon then
@@ -460,7 +498,7 @@ function meta:D3bot_UpdatePath( pathCostFunction, heuristicCostFunction )
 	mem.TgtNodeOrNil = mem.NodeTgtOrNil or navmesh.GetNearestNavArea( mem.TgtOrNil and mem.TgtOrNil:GetPos() or mem.PosTgtOrNil )
 	
 	if not area or not mem.TgtNodeOrNil then return end
-	local abilities = {Walk = true, Jump = mem.CrouchJumpHeight, Height = mem.CrouchHeight, Crab = mem.IsCrab}
+	local abilities = {Walk = true, Jump = mem.CrouchJumpHeight, Height = mem.CrouchHeight, Width = mem.HullWidth, Crab = mem.IsCrab}
 
 	---@type GWeapon|table
 	local weapon = self:GetActiveWeapon()

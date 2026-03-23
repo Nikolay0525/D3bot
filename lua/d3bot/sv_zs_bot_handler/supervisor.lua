@@ -37,6 +37,8 @@ hook.Add("PlayerInitialSpawn", D3bot.BotHooksId, function(pl)
 end)
 
 function D3bot.MaintainBotRoles()
+	if D3bot.PauseSupervisorUntil and D3bot.PauseSupervisorUntil > CurTime() then return end
+
 	if #player.GetHumans() == 0 then return end
 	local desiredCountByTeam = {}
 	local allowedTotal
