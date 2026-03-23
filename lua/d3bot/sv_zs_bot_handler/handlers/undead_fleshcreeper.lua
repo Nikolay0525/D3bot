@@ -1510,62 +1510,59 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
             end
 
             if closestDist < 150 and IsValid(closestHuman) then
-                -- Оновлюємо ціль завжди, коли вона поруч
-                mem.Volatile.ThreatTarget = closestHuman
-
-                -- Якщо таймер тактики закінчився або його ще не було — приймаємо нове рішення
                 if not mem.Volatile.ThreatResponseUntil or CurTime() > mem.Volatile.ThreatResponseUntil then
-                    -- Встановлюємо таймер на ~1 секунду перед наступним кидком кубика
-                    mem.Volatile.ThreatResponseUntil = CurTime() + math.random(10, 15) / 5
-
-                    if mem.Volatile.FleshcreeperState == STATE_BUILDING then
-                        mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
-                        mem.Volatile.BuildPosition = nil
-                        mem.Volatile.BuildStartTime = nil
-                        mem.Volatile.InterruptFlag = true
-                    end
                     
-                    if math.random() < 0.5 then
-                        mem.Volatile.ThreatResponseType = "flee"
-                        DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! ВТІКАЮ В НЕБО!")
-                    else
-                        mem.Volatile.ThreatResponseType = "fight"
-                        DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! ДАЮ ЗДАЧІ!")
+                    local attackDuration = math.random(10, 20) / 10 
+                    mem.Volatile.ThreatAttackUntil = CurTime() + attackDuration
+                    mem.Volatile.ThreatResponseUntil = mem.Volatile.ThreatAttackUntil + 2.0
+                    mem.Volatile.ThreatTarget = closestHuman
+
+                    -- "ЗАБУВАЄМО" БУДІВНИЦТВО (як при OnTakeDamage)
+                    if mem.Volatile.BuildPosition then
+                        BlacklistPosition(bot, mem.Volatile.BuildPosition, "threat_detected")
                     end
+                    BlacklistPosition(bot, bot:GetPos(), "threat_pos")
+                    
+                    mem.Volatile.InterruptFlag = true
+                    mem.Volatile.BuildPosition = nil
+                    mem.Volatile.BuildStartTime = nil
+                    mem.Volatile.TargetSigil = nil
+                    mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
+                    
+                    DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! СПОЧАТКУ Б'Ю, ПОТІМ ТІКАЮ!")
                 end
             end
         end
 
-        -- Виконання поточної тактики (б'ється або тікає, поки діє таймер)
+        -- Виконання послідовної тактики: Бій -> Втеча
         if mem.Volatile.ThreatResponseUntil and CurTime() < mem.Volatile.ThreatResponseUntil then
             local target = mem.Volatile.ThreatTarget
             if IsValid(target) and target:Alive() then
-                local targetPos = target:GetPos()
-                local targetCenterPos = target:WorldSpaceCenter() -- Беремо центр тіла гравця для точного удару
+                local botPos = bot:GetPos()
                 local threatActions = {}
-                local threatForwardSpeed = 0
+                local threatForwardSpeed = 10000 -- Завжди премо на повній швидкості
                 local threatAimAngle = angle_zero
 
-                if mem.Volatile.ThreatResponseType == "flee" then
-                    -- ВТЕЧА
-                    local dirAway = botPos - targetPos
+                -- ПЕРЕВІРКА ФАЗИ: Бій чи Втеча?
+                local isFighting = CurTime() < (mem.Volatile.ThreatAttackUntil or 0)
+
+                if isFighting then
+                    -- ФАЗА БОЮ: Цілимося в центр гравця і атакуємо
+                    local dirTo = target:WorldSpaceCenter() - bot:GetShootPos()
+                    threatAimAngle = dirTo:Angle()
+                    threatActions.Attack = true
+                    threatActions.MoveForward = true
+                else
+                    -- ФАЗА ВТЕЧІ: Розвертаємось спиною і дьорпаємо в небо
+                    local dirAway = botPos - target:GetPos()
                     dirAway.z = 0 
                     dirAway:Normalize()
                     threatAimAngle = dirAway:Angle()
                     threatAimAngle.pitch = -45
                     
-                    threatForwardSpeed = 10000
                     threatActions.MoveForward = true
                     threatActions.Reload = true
                     threatActions.Jump = true
-                else
-                    -- БІЙ: Тепер він цілиться прямо в груди і жорстко пре вперед
-                    local dirTo = targetCenterPos - bot:GetShootPos()
-                    threatAimAngle = dirTo:Angle()
-                    
-                    threatForwardSpeed = 10000
-                    threatActions.MoveForward = true
-                    threatActions.Attack = true
                 end
 
                 local buttons = bit.bor(
@@ -1582,7 +1579,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                 cmd:SetUpMove(0)
                 cmd:SetButtons(buttons)
 
-                return
+                return -- Важливо: перериваємо стандартний рух
             end
         end
     end
@@ -2120,6 +2117,48 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 				-- Don't attack nests - they're spawn points, not obstacles
 				if entity:GetClass() ~= "prop_creepernest" then
 					mem.BarricadeAttackEntity, mem.BarricadeAttackPos = entity, entityPos
+				end
+			end
+		end
+	end
+
+	-- ЛОГІКА МОБІЛЬНОСТІ: Стрибки з фіксацією фази
+	if result and actions and not (minorStuck or majorStuck or facesHindrance) then
+		local state = mem.Volatile.FleshcreeperState
+		local targetPos = nil
+
+		-- Визначаємо ціль
+		if state == STATE_MOVING_TO_BUILD and mem.Volatile.BuildPosition then
+			targetPos = mem.Volatile.BuildPosition
+		elseif state == STATE_DESTROYING_NEST and IsValid(mem.Volatile.NestToDestroy) then
+			targetPos = mem.Volatile.NestToDestroy:GetPos()
+		end
+
+		if targetPos then
+			local distToTarget = bot:GetPos():Distance(targetPos)
+
+			-- 1. Перевірка: чи ми зараз у процесі стрибка?
+			if mem.Volatile.LeapEndTime and CurTime() < mem.Volatile.LeapEndTime then
+				-- Поки триває фаза стрибка — тримаємо кнопки і погляд угору
+				actions.Reload = true
+				actions.Jump = true
+				if aimAngle then
+					aimAngle.pitch = -45
+				end
+			else
+				-- 2. Якщо стрибок закінчився або ще не почався
+				if distToTarget > 500 and bot:IsOnGround() then
+					mem.Volatile.NextLeapTime = mem.Volatile.NextLeapTime or (CurTime() + math.random(2, 4))
+
+					if CurTime() > mem.Volatile.NextLeapTime then
+						-- ПОЧАТОК ФАЗИ СТРИБКА (тривалість 0.6 сек)
+						mem.Volatile.LeapEndTime = CurTime() + 1
+						-- Наступний стрибок через 5-9 секунд
+						mem.Volatile.NextLeapTime = CurTime() + math.random(2, 4)
+					end
+				else
+					-- Скидаємо готовність, якщо підійшли близько
+					mem.Volatile.NextLeapTime = CurTime() + 2
 				end
 			end
 		end
