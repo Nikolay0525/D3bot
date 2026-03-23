@@ -706,21 +706,19 @@ local function IsPositionBlacklisted(bot, pos)
 
 	local currentTime = CurTime()
 	local validBlacklist = {}
+	local isBlacklisted = false
 
 	for _, entry in ipairs(mem.BlacklistedBuildPositions) do
-		-- Check if blacklist entry is still valid (not expired)
 		if currentTime - entry.time < BLACKLIST_EXPIRY_TIME then
 			table.insert(validBlacklist, entry)
-			-- Check if position is within 500 units of blacklisted position
 			if pos:Distance(entry.pos) < 500 then
-				return true
+				isBlacklisted = true
 			end
 		end
 	end
 
-	-- Clean up expired entries
 	mem.BlacklistedBuildPositions = validBlacklist
-	return false
+	return isBlacklisted
 end
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
@@ -1283,13 +1281,16 @@ end
 ---@param bot GPlayer The bot player
 ---@return GEntity? The unbuilt nest entity, or nil if none
 local function GetUnbuiltNest(bot)
-	local uid = bot:UniqueID()
-	for _, ent in ipairs(ents.FindByClass("prop_creepernest")) do
-		if IsValid(ent) and ent.OwnerUID == uid and not ent:GetNestBuilt() then
-			return ent
-		end
-	end
-	return nil
+    local uid = bot:UniqueID()
+    local botPos = bot:GetPos()
+    for _, ent in ipairs(ents.FindByClass("prop_creepernest")) do
+        if IsValid(ent) and ent.OwnerUID == uid and not ent:GetNestBuilt() then
+            if ent:GetPos():Distance(botPos) < 150 then
+                return ent
+            end
+        end
+    end
+    return nil
 end
 
 ---Gets the leader's nest that is being built (unbuilt nest with min progress).
@@ -2420,7 +2421,7 @@ local function CreateBehaviorCoroutine(bot)
 					-- Track the nest we're building (will be acquired during the loop)
 					-- We need to track it because GetUnbuiltNest() won't return it once it's complete
 					local buildingNest = nil
-					local initialNestHealth = nil -- Track initial health to detect damage
+					local highestNestHealth = 0 -- Трекаємо пікове здоров'я
 
 					-- Building loop
 					while true do
@@ -2448,30 +2449,32 @@ local function CreateBehaviorCoroutine(bot)
 							end
 						end
 
-						-- Try to acquire the nest reference if we don't have it yet
-						-- The nest is created by UpdateBotCmdFunction calling SecondaryAttack()
+						-- Try to acquire the nest reference
 						if not IsValid(buildingNest) then
 							TagNearbyUnownedNests(bot)
 							buildingNest = GetUnbuiltNest(bot)
 							if IsValid(buildingNest) then
 								DebugPrint("Coroutine: Acquired nest reference:", buildingNest)
-								-- Record initial health to detect if nest gets shot
-								initialNestHealth = buildingNest:GetNestHealth() or 0
+								highestNestHealth = buildingNest:GetNestHealth() or 0
 							end
 						end
 
-						-- NEST DAMAGE CHECK: If nest is being shot by humans, abandon and blacklist position
-						if IsValid(buildingNest) and initialNestHealth then
+						-- ЗАЛІЗОБЕТОННИЙ NEST DAMAGE CHECK
+						if IsValid(buildingNest) then
 							local currentHealth = buildingNest:GetNestHealth() or 0
-							if currentHealth < initialNestHealth then
-								DebugPrint("Coroutine: Nest taking damage! Health:", currentHealth, "/", initialNestHealth, "- abandoning position")
-								-- Blacklist this position so we don't try again
+							
+							-- Якщо здоров'я впало нижче історичного максимуму — нас б'ють!
+							if currentHealth < highestNestHealth then
+								DebugPrint("Coroutine: Nest taking damage! Dropped from", highestNestHealth, "to", currentHealth, "- abandoning position")
 								BlacklistPosition(bot, buildPos, "nest_shot_by_human")
-								-- Clear build state
+								
 								mem.Volatile.BuildPosition = nil
 								mem.Volatile.BuildStartTime = nil
 								ClearStuckDetection(mem)
 								break
+							else
+								-- Оновлюємо пік здоров'я (він росте поки бот будує)
+								highestNestHealth = currentHealth
 							end
 						end
 
@@ -2620,11 +2623,23 @@ end
 ---@param dmg GCTakeDamageInfo The damage info
 ---@return nil
 function HANDLER.OnTakeDamageFunction(bot, dmg)
-	-- If attacked while building, might need to reposition
 	local mem = bot.D3bot_Mem
-	if mem.Volatile.FleshcreeperState == STATE_BUILDING then
-		mem.Volatile.FleshcreeperState = STATE_BACKING_OFF
-		mem.Volatile.BackoffEndTime = CurTime() + 3
+	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
+		
+		-- Блокуємо і цільову позицію, і фактичне місце, де бот отримав по голові
+		if mem.Volatile.BuildPosition then
+			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
+		end
+		BlacklistPosition(bot, bot:GetPos(), "took_damage_pos")
+
+		-- Жорстко перериваємо процеси
+		mem.Volatile.InterruptFlag = true
+		mem.Volatile.BuildPosition = nil
+		mem.Volatile.BuildStartTime = nil
+		mem.Volatile.TargetSigil = nil
+		
+		-- МИТТЄВЕ СКИДАННЯ СТАНУ (це вимкне затискання ПКМ)
+		mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
 	end
 end
 
