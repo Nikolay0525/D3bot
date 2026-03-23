@@ -27,10 +27,6 @@ HANDLER.AmbushBarricadeAvoidDist = 300 -- Minimum distance from nailed props for
 local function IsStandardZSMap()
 	return not GAMEMODE.ZombieEscape and not GAMEMODE.ObjectiveMap
 end
-
---------------------------------------------------------------------------------
--- Helper: Check if wave countdown is in barricade ambush trigger window (last 10 seconds)
---------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Helper: Check if wave countdown is in barricade ambush trigger window
 --------------------------------------------------------------------------------
@@ -42,12 +38,10 @@ local function ShouldTriggerBarricadeAmbush(bot)
 
     local mem = bot.D3bot_Mem
     
-    -- Генеруємо індивідуальний рандомний множник ±20% (від 0.8 до 1.2) ОДИН РАЗ
     if not mem.Volatile.AmbushTimeMultiplier then
         mem.Volatile.AmbushTimeMultiplier = math.Rand(0.8, 1.2)
     end
     
-    -- Множимо базові 10 секунд на цей рандом (вийде від 8 до 12 секунд)
     local triggerTime = HANDLER.BarricadeCountdown * mem.Volatile.AmbushTimeMultiplier
 
     return timeLeft <= triggerTime and timeLeft > 0
