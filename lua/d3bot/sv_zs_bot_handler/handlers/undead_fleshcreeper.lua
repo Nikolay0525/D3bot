@@ -2243,7 +2243,7 @@ local function CheckForInterrupts(bot, mem)
 			end
 		end
 
-		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST then
 			local nestToRepair, healthPercent, pathDist = GetClosestNestNeedingRepair()
 			if IsValid(nestToRepair) then
 				mem.Volatile.NestToRepair = nestToRepair
@@ -2273,19 +2273,46 @@ local function CreateBehaviorCoroutine(bot)
 
 			local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
 			if globalBuiltNests >= HANDLER.NestsRequired then
+				-- 1. Перевірка: чи є завдання на руйнування (печатки/дистанція)?
 				if IsValid(mem.Volatile.NestToDestroy) then
-					-- Пропускаємо Фазу 0, йдемо руйнувати неактуальне гніздо у Фазу 1
+					DebugPrint("Coroutine: Have nest to destroy, skipping suicide.")
+				
+				-- 2. Перевірка: чи є завдання на ремонт?
 				elseif IsValid(mem.Volatile.NestToRepair) then
-					-- Пропускаємо Фазу 0, йдемо ремонтувати у Фазу 1.5
+					DebugPrint("Coroutine: Have nest to repair, skipping suicide.")
+				
 				else
-					local humansUnreachable = AreHumansUnreachable(bot)
-					local attackClassIndex = GetRandomAttackClassIndex(humansUnreachable)
-					bot.DeathClass = attackClassIndex
+					-- ФІНАЛЬНИЙ АУДИТ ПЕРЕД СМЕРТЮ
+					DebugPrint("Coroutine: Performing final audit before class switch...")
 					
-					bot.D3bot_RespawnDelayUntil = CurTime() + 3
-					ClearStuckDetection(mem)
-					bot:Kill()
-					return
+					-- ПЕРЕВІРКА АКТУАЛЬНОСТІ (Дистанція 900)
+					local furthestNest, dist = GetFurthestInvalidNest()
+					if IsValid(furthestNest) then
+						DebugPrint("Coroutine: Wait! Found invalid nest during audit (dist: " .. math.floor(dist) .. "). Relocating.")
+						mem.Volatile.NestToDestroy = furthestNest
+						mem.Volatile.NestTooFarDestroy = true
+						-- Не вмираємо, цикл піде на PHASE 1
+					else
+						-- ПЕРЕВІРКА ЦІЛІСНОСТІ (Здоров'я < 95%)
+						local damagedNest, _ = GetClosestNestNeedingRepair()
+						if IsValid(damagedNest) then
+							DebugPrint("Coroutine: Wait! Found damaged nest during audit. Going to repair.")
+							mem.Volatile.NestToRepair = damagedNest
+							-- Не вмираємо, цикл піде на PHASE 1.5
+						else
+							-- ЯКЩО МИ ТУТ — ВСЕ ІДЕАЛЬНО: 2 гнізда, всі близько, всі цілі.
+							DebugPrint("Coroutine: Audit passed. Both nests are valid and healthy. Switching class.")
+							
+							local humansUnreachable = AreHumansUnreachable(bot)
+							local attackClassIndex = GetRandomAttackClassIndex(humansUnreachable)
+							bot.DeathClass = attackClassIndex
+							
+							bot.D3bot_RespawnDelayUntil = CurTime() + 3
+							ClearStuckDetection(mem)
+							bot:Kill()
+							return -- Повна зупинка корутини
+						end
+					end
 				end
 			end
 
