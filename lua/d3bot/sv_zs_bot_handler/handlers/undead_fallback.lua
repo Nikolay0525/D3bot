@@ -7,7 +7,7 @@ local DEBUG_NEST_TARGET = false
 -- Debug flag for ambush/flee behavior (set to true to enable [D3bot Behavior] messages)
 local DEBUG_BEHAVIOR = false 
 
-local DEBUG_STRAFE = false
+local DEBUG_STRAFE = true 
 
 local DEBUG_KEYS = false     
 
@@ -1017,169 +1017,179 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 	end
 
 	-- ====================================================================
-    -- СИСТЕМА УХИЛЯННЯ (DODGE/EVADE) - ВОГНЕПАЛ vs БЛИЖНІЙ БІЙ
-    -- ====================================================================
-    if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
-        local target = mem.TgtOrNil
-        local targetPos = target:GetPos()
-        local botPos = bot:GetPos()
-        local distSqr = botPos:DistToSqr(targetPos)
+	-- СИСТЕМА УХИЛЯННЯ (DODGE/EVADE) - ВОГНЕПАЛ vs БЛИЖНІЙ БІЙ
+	-- ====================================================================
+	if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
+		local target = mem.TgtOrNil
+		local targetPos = target:GetPos()
+		local botPos = bot:GetPos()
+		local distSqr = botPos:DistToSqr(targetPos)
 
-        -- ГЕНІАЛЬНА ПЕРЕВІРКА ВІД ТЕБЕ:
-        -- Дозволяємо ухилятися, якщо:
-        -- 1. Немає перешкод (not facesHindrance)
-        -- 2. АБО ми вже в процесі ухиляння (isDodging), щоб перешкода не перервала наш відскок
-        if distSqr < 1000000 and (not facesHindrance or isDodging) then
-            local wep = target:GetActiveWeapon()
-            if IsValid(wep) then
-                mem.Volatile.NextDodgeTime = mem.Volatile.NextDodgeTime or 0
-                mem.Volatile.NextJumpTime = mem.Volatile.NextJumpTime or 0
+		if distSqr < 250000 and (not facesHindrance or isDodging) then
+			local wep = target:GetActiveWeapon()
+			if IsValid(wep) then
+				mem.Volatile.NextDodgeTime = mem.Volatile.NextDodgeTime or 0
+				mem.Volatile.NextJumpTime = mem.Volatile.NextJumpTime or 0
 
-                -- 1. БЛОК ПРИЙНЯТТЯ РІШЕНЬ
-                if CurTime() > mem.Volatile.NextDodgeTime then
-                    mem.Volatile.DodgeStrafe = 0 
-                    local tacticName = "None"
-                    
-                    local isMelee = false
-                    local wepBase = string.lower(wep.Base or "")
-                    local wepClass = string.lower(wep:GetClass())
-                    
-                    if string.find(wepBase, "melee") or string.find(wepClass, "melee") then
-                        isMelee = true
-                    elseif type(wep.IsMelee) == "function" and wep:IsMelee() then
-                        isMelee = true
-                    elseif type(wep.IsMelee) == "boolean" and wep.IsMelee then
-                        isMelee = true
-                    end
+				-- ========================================================
+				-- ПЕРЕВІРКА ПОГЛЯДУ: Чи дивиться ціль на нас? (FOV 120°)
+				-- ========================================================
+				local dirToBot = botPos - targetPos
+				dirToBot.z = 0
+				dirToBot:Normalize()
+				
+				local targetAim = target:GetAimVector()
+				targetAim.z = 0
+				targetAim:Normalize()
+				
+				-- Якщо скалярний добуток >= 0.5, бот знаходиться в конусі 120 градусів перед гравцем
+				local isLookingAtBot = (targetAim:Dot(dirToBot) >= 0.5)
 
-                    if isMelee then
-                        tacticName = "БЛИЖНІЙ БІЙ"
-                        local isAttacking = target:KeyDown(IN_ATTACK)
-                        
-                        if distSqr < 22500 and ((isAttacking and math.random() < 0.75) or math.random() < 0.5) then 
-                            mem.Volatile.BackwardUntil = CurTime() + math.random(2, 4) / 10 
-                            tacticName = tacticName .. " (ВІДСТРИБ)"
-                        end
-                        
-                        if math.random() < 0.50 then
-                            mem.Volatile.DodgeStrafe = math.random(-1, 1)
-                        end
+				-- 1. БЛОК ПРИЙНЯТТЯ РІШЕНЬ
+				if CurTime() > mem.Volatile.NextDodgeTime then
+					mem.Volatile.DodgeStrafe = 0 
+					local tacticName = "None"
+					
+					if isLookingAtBot then
+						local isMelee = false
+						local wepBase = string.lower(wep.Base or "")
+						local wepClass = string.lower(wep:GetClass())
+						
+						if string.find(wepBase, "melee") or string.find(wepClass, "melee") then
+							isMelee = true
+						elseif type(wep.IsMelee) == "function" and wep:IsMelee() then
+							isMelee = true
+						elseif type(wep.IsMelee) == "boolean" and wep.IsMelee then
+							isMelee = true
+						end
 
-                        -- СТРИБОК (Ближній бій)
-                        if CurTime() > mem.Volatile.NextJumpTime and math.random() < 0.25 then
-                            mem.Volatile.DodgeJump = true
-                            mem.Volatile.NextJumpTime = CurTime() + math.random(15, 25) / 10 
-                            tacticName = tacticName .. " (СТРИБОК)"
-                        end
+						if isMelee then
+							tacticName = "БЛИЖНІЙ БІЙ"
+							local isAttacking = target:KeyDown(IN_ATTACK)
+							
+							if distSqr < 22500 and ((isAttacking and math.random() < 0.75) or math.random() < 0.25) then 
+								mem.Volatile.BackwardUntil = CurTime() + math.random(2, 4) / 10 
+								tacticName = tacticName .. " (ВІДСТРИБ)"
+							end
+							
+							if math.random() < 0.50 then
+								mem.Volatile.DodgeStrafe = math.random(-1, 1)
+							end
 
-                        if math.random() < 0.25 then
-                            mem.Volatile.DuckUntil = CurTime() + math.random(3, 4) / 10 
-                            tacticName = tacticName .. " (ПРИСІД)"
-                        end
+							if CurTime() > mem.Volatile.NextJumpTime and math.random() < 0.25 then
+								mem.Volatile.DodgeJump = true
+								mem.Volatile.NextJumpTime = CurTime() + math.random(15, 25) / 10 
+								tacticName = tacticName .. " (СТРИБОК)"
+							end
 
-                        mem.Volatile.NextDodgeTime = CurTime() + math.random(3, 5) / 10
-                    else
-                        tacticName = "ВОГНЕПАЛ (КУЛІ)"
-                        mem.Volatile.DodgeStrafe = math.random(-1, 1)
-                        
-                        -- СТРИБОК (Вогнепал)
-                        if CurTime() > mem.Volatile.NextJumpTime and math.random() < 0.25 then
-                            mem.Volatile.DodgeJump = true
-                            mem.Volatile.NextJumpTime = CurTime() + math.random(15, 25) / 10 
-                            tacticName = tacticName .. " (СТРИБОК)"
-                        end
+							if math.random() < 0.25 then
+								mem.Volatile.DuckUntil = CurTime() + math.random(3, 4) / 10 
+								tacticName = tacticName .. " (ПРИСІД)"
+							end
 
-                        if math.random() < 0.25 then
-                            mem.Volatile.DuckUntil = CurTime() + math.random(3, 4) / 10 
-                            tacticName = tacticName .. " (ПРИСІД)"
-                        end
-                        mem.Volatile.NextDodgeTime = CurTime() + math.random(1, 3) / 10
-                    end
+							mem.Volatile.NextDodgeTime = CurTime() + math.random(3, 5) / 10
+						else
+							tacticName = "ВОГНЕПАЛ (КУЛІ)"
+							mem.Volatile.DodgeStrafe = math.random(-1, 1)
+							
+							if CurTime() > mem.Volatile.NextJumpTime and math.random() < 0.25 then
+								mem.Volatile.DodgeJump = true
+								mem.Volatile.NextJumpTime = CurTime() + math.random(15, 25) / 10 
+								tacticName = tacticName .. " (СТРИБОК)"
+							end
 
-					if DEBUG_STRAFE then
-                        local dir = (mem.Volatile.DodgeStrafe == -1) and "Вліво" or (mem.Volatile.DodgeStrafe == 1) and "Вправо" or "Прямо"
-                        local ext = (mem.Volatile.DodgeJump and " + СТРИБОК") or ""
-                        print("[D3bot Dodge] " .. bot:Nick() .. " vs " .. tacticName .. " | Рух: " .. dir .. ext)
-                    end
-                end
+							if math.random() < 0.25 then
+								mem.Volatile.DuckUntil = CurTime() + math.random(3, 4) / 10 
+								tacticName = tacticName .. " (ПРИСІД)"
+							end
+							mem.Volatile.NextDodgeTime = CurTime() + math.random(1, 3) / 10
+						end
 
-                isBackward = mem.Volatile.BackwardUntil and CurTime() < mem.Volatile.BackwardUntil
-                isStrafing = mem.Volatile.DodgeStrafe and mem.Volatile.DodgeStrafe ~= 0
-                local isDodging = isBackward or isStrafing
+						if DEBUG_STRAFE then
+							local dir = (mem.Volatile.DodgeStrafe == -1) and "Вліво" or (mem.Volatile.DodgeStrafe == 1) and "Вправо" or "Прямо"
+							local ext = (mem.Volatile.DodgeJump and " + СТРИБОК") or ""
+							print("[D3bot Dodge] " .. bot:Nick() .. " vs " .. tacticName .. " | Рух: " .. dir .. ext)
+						end
+					else
+						mem.Volatile.NextDodgeTime = CurTime() + 0.2
+						if DEBUG_STRAFE then
+							print("[D3bot Dodge] " .. bot:Nick() .. " -> Ціль не дивиться! Пру прямо.")
+						end
+					end
+				end
 
-                local botWep = bot:GetActiveWeapon()
-                local botIsAttacking = false
-                
-                if IsValid(botWep) then
-                    if type(botWep.IsSwinging) == "function" and botWep:IsSwinging() then botIsAttacking = true end
-                    if botWep.GetSwingEndTime and botWep:GetSwingEndTime() > CurTime() then botIsAttacking = true end
-                    
-                    if (actions.Attack and distSqr < 10000) or actions.Attack2 then botIsAttacking = true end
-                end
+				if not isLookingAtBot then
+					mem.Volatile.DodgeStrafe = 0
+					mem.Volatile.BackwardUntil = nil
+				end
 
-                if botIsAttacking then
-                    isDodging = false
-                    isBackward = false
-                    isStrafing = false
-                    
-                    mem.Volatile.BackwardUntil = nil
-                    mem.Volatile.DodgeStrafe = 0
-                    
-                    if DEBUG_STRAFE and (mem.Volatile.BackwardUntil or mem.Volatile.DodgeStrafe ~= 0) then
-                        print("[D3bot Dodge] " .. bot:Nick() .. " -> АТАКА! Ухиляння і стрейф скасовано.")
-                    end
-                end
+				isBackward = mem.Volatile.BackwardUntil and CurTime() < mem.Volatile.BackwardUntil
+				isStrafing = mem.Volatile.DodgeStrafe and mem.Volatile.DodgeStrafe ~= 0
+				local isDodging = isBackward or isStrafing
 
-                actions = actions or {}
-                
-                if isDodging then
-                    actions.MoveForward = nil
-                    actions.MoveBackward = nil
-                    actions.MoveLeft = nil
-                    actions.MoveRight = nil
-                    
-                    actions.Attack = nil
-                    actions.Attack2 = nil
-                    actions.Use = nil
+				local botWep = bot:GetActiveWeapon()
+				local botIsAttacking = false
+				
+				if IsValid(botWep) then
+					if type(botWep.IsSwinging) == "function" and botWep:IsSwinging() then botIsAttacking = true end
+					if botWep.GetSwingEndTime and botWep:GetSwingEndTime() > CurTime() then botIsAttacking = true end
+					
+					if (actions.Attack and distSqr < 10000) or actions.Attack2 then botIsAttacking = true end
+				end
 
-                    forwardSpeed = 0
-                    sideSpeed = 0
+				if botIsAttacking then
+					isDodging = false
+					isBackward = false
+					isStrafing = false
+					
+					mem.Volatile.BackwardUntil = nil
+					mem.Volatile.DodgeStrafe = 0
+					
+					if DEBUG_STRAFE and (mem.Volatile.BackwardUntil or mem.Volatile.DodgeStrafe ~= 0) then
+						print("[D3bot Dodge] " .. bot:Nick() .. " -> АТАКА! Ухиляння скасовано.")
+					end
+				end
 
-                    local dirToTarget = targetPos - botPos
-                    dirToTarget.z = 0
-                    aimAngle = dirToTarget:Angle()
+				actions = actions or {}
+				
+				if isDodging then
+					if isBackward then
+						forwardSpeed = -10000
+						sideSpeed = 0
+						actions.MoveForward = nil
+						actions.MoveBackward = true
+						actions.MoveLeft = nil
+						actions.MoveRight = nil
+					else
+						forwardSpeed = 10000
+						actions.MoveForward = true
+						actions.MoveBackward = nil
+					end
+					
+					if mem.Volatile.DodgeStrafe == -1 then
+						sideSpeed = -10000
+						actions.MoveLeft = true
+						actions.MoveRight = nil
+					elseif mem.Volatile.DodgeStrafe == 1 then
+						sideSpeed = 10000
+						actions.MoveRight = true
+						actions.MoveLeft = nil
+					end
+				end
 
-                    if isBackward then
-                        forwardSpeed = -10000
-                        actions.MoveBackward = true
-                    else
-                        forwardSpeed = 10000
-                        actions.MoveForward = true
-                    end
-                    
-                    if mem.Volatile.DodgeStrafe == -1 then
-                        sideSpeed = -10000
-                        actions.MoveLeft = true
-                    elseif mem.Volatile.DodgeStrafe == 1 then
-                        sideSpeed = 10000
-                        actions.MoveRight = true
-                    end
-                end
-
-                if mem.Volatile.DodgeJump and bot:IsOnGround() then
-                    actions.Jump = true
-                    mem.Volatile.DodgeJump = false -- Одразу стираємо намір
-                end
-                
-                if mem.Volatile.DuckUntil and CurTime() < mem.Volatile.DuckUntil then
-                    actions.Duck = true
-                else
-                    actions.Duck = false
-                end
-            end
-        end
-    end
-    -- ====================================================================
+				if mem.Volatile.DodgeJump and bot:IsOnGround() then
+					actions.Jump = true
+					mem.Volatile.DodgeJump = false
+				end
+				
+				if mem.Volatile.DuckUntil and CurTime() < mem.Volatile.DuckUntil then
+					actions.Duck = true
+				else
+					actions.Duck = false
+				end
+			end
+		end
+	end
 
 	local buttons
 	if actions then
