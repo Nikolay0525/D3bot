@@ -1402,19 +1402,50 @@ end
 ---@return number? healthPercent Current health percentage
 ---@return number? pathDist Path distance to nearest human
 local function GetClosestNestNeedingRepair()
-	local closestNest, pathDist = GetNestClosestToHumans()
+    local nests = ents.FindByClass("prop_creepernest")
+    local humans = team.GetPlayers(TEAM_HUMAN)
 
-	if not IsValid(closestNest) then
-		return nil, nil, nil
-	end
+    if #nests == 0 or #humans == 0 then 
+        return nil, nil, nil 
+    end
 
-	local needsRepair, healthPercent = IsNestDamaged(closestNest)
+    local bestNest = nil
+    local bestDist = math.huge
+    local bestHealthPercent = 1
 
-	if needsRepair then
-		return closestNest, healthPercent, pathDist
-	end
+    for _, nest in ipairs(nests) do
+        local needsRepair, healthPercent = IsNestDamaged(nest)
+        
+        if needsRepair then
+            local nestPos = nest:GetPos()
+            local minHumanDist = math.huge
+            
+            for _, human in ipairs(humans) do
+                if IsValid(human) and human:Alive() then
+                    local pathDist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                    if not pathDist then
+                        pathDist = nestPos:Distance(human:GetPos()) * 1.1
+                    end
+                    
+                    if pathDist < minHumanDist then
+                        minHumanDist = pathDist
+                    end
+                end
+            end
+            
+            if minHumanDist < bestDist then
+                bestDist = minHumanDist
+                bestNest = nest
+                bestHealthPercent = healthPercent
+            end
+        end
+    end
 
-	return nil, nil, nil
+    if bestNest then
+        return bestNest, bestHealthPercent, bestDist < math.huge and bestDist or nil
+    end
+
+    return nil, nil, nil
 end
 
 local NEST_TOO_FAR_DISTANCE = 900
@@ -2122,44 +2153,46 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		end
 	end
 
-	-- ЛОГІКА МОБІЛЬНОСТІ: Стрибки з фіксацією фази
+	-- ЛОГІКА МОБІЛЬНОСТІ: Універсальні стрибки з фіксацією фази
 	if result and actions and not (minorStuck or majorStuck or facesHindrance) then
 		local state = mem.Volatile.FleshcreeperState
 		local targetPos = nil
 
-		-- Визначаємо ціль
-		if state == STATE_MOVING_TO_BUILD and mem.Volatile.BuildPosition then
-			targetPos = mem.Volatile.BuildPosition
+		-- Визначаємо ціль для тактичних стрибків (додали STATE_REPAIRING_NEST)
+		if state == STATE_MOVING_TO_BUILD then
+			if mem.Volatile.BuildPosition then
+				targetPos = mem.Volatile.BuildPosition
+			elseif IsValid(mem.Volatile.NestToRepair) then
+				targetPos = mem.Volatile.NestToRepair:GetPos()
+			end
 		elseif state == STATE_DESTROYING_NEST and IsValid(mem.Volatile.NestToDestroy) then
 			targetPos = mem.Volatile.NestToDestroy:GetPos()
 		end
 
-		if targetPos then
+		-- 1. БЕЗУМОВНА ПЕРЕВІРКА: чи є наказ стрибати? (від рутини або від поранення)
+		if mem.Volatile.LeapEndTime and CurTime() < mem.Volatile.LeapEndTime then
+			-- Поки триває таймер — затискаємо кнопки і дивимося вгору
+			actions.Reload = true
+			actions.Jump = true
+			if aimAngle then
+				aimAngle.pitch = -45
+			end
+		elseif targetPos then
+			-- 2. Якщо наближаємось до цілі (ремонт, злам, будівництво)
 			local distToTarget = bot:GetPos():Distance(targetPos)
+			
+			if distToTarget > 500 and bot:IsOnGround() then
+				mem.Volatile.NextLeapTime = mem.Volatile.NextLeapTime or (CurTime() + math.random(2, 4))
 
-			-- 1. Перевірка: чи ми зараз у процесі стрибка?
-			if mem.Volatile.LeapEndTime and CurTime() < mem.Volatile.LeapEndTime then
-				-- Поки триває фаза стрибка — тримаємо кнопки і погляд угору
-				actions.Reload = true
-				actions.Jump = true
-				if aimAngle then
-					aimAngle.pitch = -45
+				if CurTime() > mem.Volatile.NextLeapTime then
+					-- ПОЧАТОК ФАЗИ СТРИБКА (тривалість 1 сек)
+					mem.Volatile.LeapEndTime = CurTime() + 1
+					-- Наступний стрибок через 2-4 секунд
+					mem.Volatile.NextLeapTime = CurTime() + math.random(2, 4)
 				end
 			else
-				-- 2. Якщо стрибок закінчився або ще не почався
-				if distToTarget > 500 and bot:IsOnGround() then
-					mem.Volatile.NextLeapTime = mem.Volatile.NextLeapTime or (CurTime() + math.random(2, 4))
-
-					if CurTime() > mem.Volatile.NextLeapTime then
-						-- ПОЧАТОК ФАЗИ СТРИБКА (тривалість 0.6 сек)
-						mem.Volatile.LeapEndTime = CurTime() + 1
-						-- Наступний стрибок через 5-9 секунд
-						mem.Volatile.NextLeapTime = CurTime() + math.random(2, 4)
-					end
-				else
-					-- Скидаємо готовність, якщо підійшли близько
-					mem.Volatile.NextLeapTime = CurTime() + 2
-				end
+				-- Скидаємо готовність, якщо підійшли близько
+				mem.Volatile.NextLeapTime = CurTime() + 2
 			end
 		end
 	end
@@ -2234,21 +2267,21 @@ local function CheckForInterrupts(bot, mem)
 
 	if globalBuiltNests >= HANDLER.NestsRequired then
 		
-		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_MOVING_TO_BUILD and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
-			local farNest, farNestDist = GetFurthestInvalidNest()
-			if IsValid(farNest) then
-				mem.Volatile.NestToDestroy = farNest
-				mem.Volatile.NestTooFarDestroy = true
-				return true, "nest_too_far"
-			end
-		end
-
-		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST then
+		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST and mem.Volatile.FleshcreeperState ~= STATE_BUILDING then
 			local nestToRepair, healthPercent, pathDist = GetClosestNestNeedingRepair()
 			if IsValid(nestToRepair) then
 				mem.Volatile.NestToRepair = nestToRepair
 				mem.Volatile.NestRepairHealthPercent = healthPercent
 				return true, "nest_needs_repair"
+			end
+		end
+
+		if not IsValid(mem.Volatile.NestToDestroy) and not IsValid(mem.Volatile.NestToRepair) and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_MOVING_TO_BUILD and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+			local farNest, farNestDist = GetFurthestInvalidNest()
+			if IsValid(farNest) then
+				mem.Volatile.NestToDestroy = farNest
+				mem.Volatile.NestTooFarDestroy = true
+				return true, "nest_too_far"
 			end
 		end
 		
@@ -2285,20 +2318,20 @@ local function CreateBehaviorCoroutine(bot)
 					-- ФІНАЛЬНИЙ АУДИТ ПЕРЕД СМЕРТЮ
 					DebugPrint("Coroutine: Performing final audit before class switch...")
 					
-					-- ПЕРЕВІРКА АКТУАЛЬНОСТІ (Дистанція 900)
-					local furthestNest, dist = GetFurthestInvalidNest()
-					if IsValid(furthestNest) then
-						DebugPrint("Coroutine: Wait! Found invalid nest during audit (dist: " .. math.floor(dist) .. "). Relocating.")
-						mem.Volatile.NestToDestroy = furthestNest
-						mem.Volatile.NestTooFarDestroy = true
-						-- Не вмираємо, цикл піде на PHASE 1
+					-- 1. Спершу перевіряємо ЦІЛІСНІСТЬ (Здоров'я < 95%) - ЦЕ ВАЖЛИВІШЕ
+					local damagedNest, _ = GetClosestNestNeedingRepair()
+					if IsValid(damagedNest) then
+						DebugPrint("Coroutine: Wait! Found damaged nest during audit. Going to repair.")
+						mem.Volatile.NestToRepair = damagedNest
+						-- Не вмираємо, цикл піде на PHASE 1.5
 					else
-						-- ПЕРЕВІРКА ЦІЛІСНОСТІ (Здоров'я < 95%)
-						local damagedNest, _ = GetClosestNestNeedingRepair()
-						if IsValid(damagedNest) then
-							DebugPrint("Coroutine: Wait! Found damaged nest during audit. Going to repair.")
-							mem.Volatile.NestToRepair = damagedNest
-							-- Не вмираємо, цикл піде на PHASE 1.5
+						-- 2. Якщо всі цілі, перевіряємо АКТУАЛЬНІСТЬ (Дистанція 900)
+						local furthestNest, dist = GetFurthestInvalidNest()
+						if IsValid(furthestNest) then
+							DebugPrint("Coroutine: Wait! Found invalid nest during audit (dist: " .. math.floor(dist) .. "). Relocating.")
+							mem.Volatile.NestToDestroy = furthestNest
+							mem.Volatile.NestTooFarDestroy = true
+							-- Не вмираємо, цикл піде на PHASE 1
 						else
 							-- ЯКЩО МИ ТУТ — ВСЕ ІДЕАЛЬНО: 2 гнізда, всі близько, всі цілі.
 							DebugPrint("Coroutine: Audit passed. Both nests are valid and healthy. Switching class.")
@@ -2339,15 +2372,10 @@ local function CreateBehaviorCoroutine(bot)
 					mem.Volatile.RelocateTarget = nil
 					mem.Volatile.RelocateType = nil
 				else
-					-- Check for more nests near corrupted sigil
-					local corruptedSigil = mem.Volatile.CorruptedSigil or GetCorruptedSigil()
-					local nextNest = IsValid(corruptedSigil) and GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance) or nil
-					if IsValid(nextNest) then
-						mem.Volatile.NestToDestroy = nextNest
-						-- Loop back to destroy this nest
-					else
-						mem.Volatile.CorruptedSigil = nil
-					end
+					-- Руйнування через зіпсовану печатку.
+					-- ПРОСТО очищаємо пам'ять. Бот "провалиться" в будівництво, щоб зробити заміну.
+					-- Друге гніздо він зламає лише тоді, коли добудує це (через CheckForInterrupts).
+					mem.Volatile.CorruptedSigil = nil
 				end
 				mem.Volatile.NestToDestroy = nil
 				ClearStuckDetection(mem)
@@ -2410,7 +2438,7 @@ local function CreateBehaviorCoroutine(bot)
 				local nestsAfterRepair = CountAllBuiltNests()
 				if nestsAfterRepair >= HANDLER.NestsRequired then
 					DebugPrint("Coroutine: Repair complete, 2 nests exist, looping back to PHASE 0")
-					-- Continue will loop back to PHASE 0 at the top of the while loop
+					return -- Continue will loop back to PHASE 0 at the top of the while loop
 				end
 			end
 
@@ -2690,6 +2718,13 @@ end
 ---@return nil
 function HANDLER.OnTakeDamageFunction(bot, dmg)
 	local mem = bot.D3bot_Mem
+	
+	-- ЗАХИСНИЙ РИВОК: 50% шанс стрибнути при отриманні кожної кулі
+	-- Перевіряємо, щоб випадково не зрізати таймер, якщо він уже в довгому стрибку
+	if math.random() < 0.50 and (not mem.Volatile.LeapEndTime or mem.Volatile.LeapEndTime < CurTime() + 1) then
+		mem.Volatile.LeapEndTime = CurTime() + 1 -- Короткий ривок вгору для ухилення
+	end
+
 	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
 		
 		-- Блокуємо і цільову позицію, і фактичне місце, де бот отримав по голові
