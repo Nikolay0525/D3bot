@@ -1401,7 +1401,7 @@ end
 ---@return GEntity? nest The nest needing repair (if any)
 ---@return number? healthPercent Current health percentage
 ---@return number? pathDist Path distance to nearest human
-local function GetClosestNestNeedingRepair()
+function HANDLER.GetClosestNestNeedingRepair()
     local nests = ents.FindByClass("prop_creepernest")
     local humans = team.GetPlayers(TEAM_HUMAN)
 
@@ -2268,7 +2268,7 @@ local function CheckForInterrupts(bot, mem)
 	if globalBuiltNests >= HANDLER.NestsRequired then
 		
 		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST and mem.Volatile.FleshcreeperState ~= STATE_BUILDING then
-			local nestToRepair, healthPercent, pathDist = GetClosestNestNeedingRepair()
+			local nestToRepair, healthPercent, pathDist = HANDLER.GetClosestNestNeedingRepair()
 			if IsValid(nestToRepair) then
 				mem.Volatile.NestToRepair = nestToRepair
 				mem.Volatile.NestRepairHealthPercent = healthPercent
@@ -2319,7 +2319,7 @@ local function CreateBehaviorCoroutine(bot)
 					DebugPrint("Coroutine: Performing final audit before class switch...")
 					
 					-- 1. Спершу перевіряємо ЦІЛІСНІСТЬ (Здоров'я < 95%) - ЦЕ ВАЖЛИВІШЕ
-					local damagedNest, _ = GetClosestNestNeedingRepair()
+					local damagedNest, _ = HANDLER.GetClosestNestNeedingRepair()
 					if IsValid(damagedNest) then
 						DebugPrint("Coroutine: Wait! Found damaged nest during audit. Going to repair.")
 						mem.Volatile.NestToRepair = damagedNest
