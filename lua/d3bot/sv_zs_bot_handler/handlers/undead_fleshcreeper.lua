@@ -107,22 +107,6 @@ HANDLER.FastAttackerPriority = {
 	["Zombie Gore Blaster"] = 8        -- Low priority - can rebuild nests if selected
 }
 
--- Post-build behavior options (what to do after 2 nests are built)
--- Each option can appear multiple times to adjust probability
--- 100% switch_class, 0% stay as Flesh Creeper
-HANDLER.PostBuildOptions = {
-	"switch_class",      -- 100% chance to switch class
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class",
-	"switch_class"      -- 0% chance to stay and attack humans
-}
-
 -- Attack mode constants for post-build
 local ATTACK_MODE_HUMANS = 1
 local ATTACK_MODE_BARRICADES = 2
@@ -200,6 +184,7 @@ local STATE_REPAIRING_NEST = 8
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
 local DEBUG_FLESHCREEPER = true    
+local DEBUG_STUCK = false 
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
 ---@param botOrMsg GPlayer|any First argument - either a bot player for identification or a message part
@@ -207,6 +192,42 @@ local DEBUG_FLESHCREEPER = true
 ---@return nil
 local function DebugPrint(botOrMsg, ...)
 	if DEBUG_FLESHCREEPER then
+		-- Check if first arg is a bot player - if so, show which Flesh Creeper number
+		local prefix = "[FleshCreeper]"
+		local args = {...}
+
+		if botOrMsg and type(botOrMsg) == "Player" or (type(botOrMsg) == "table" and botOrMsg.IsPlayer and botOrMsg:IsPlayer()) then
+			-- First arg is a bot, determine its number
+			local fcNum = "?"
+			local fcCount = 0
+			for _, ply in ipairs(player.GetAll()) do
+				if IsValid(ply) and ply:IsBot() and ply:Alive() and ply:Team() == TEAM_UNDEAD then
+					local class = ply:GetZombieClassTable()
+					if class and class.Name == "Flesh Creeper" then
+						fcCount = fcCount + 1
+						if ply == botOrMsg then
+							fcNum = tostring(fcCount)
+							break
+						end
+					end
+				end
+			end
+			prefix = "[FleshCreeper " .. fcNum .. "]"
+		else
+			-- First arg is not a bot, include it in the message
+			table.insert(args, 1, botOrMsg)
+		end
+
+		print(prefix, unpack(args))
+	end
+end
+
+---Prints debug messages with Flesh Creeper bot identification prefix.
+---@param botOrMsg GPlayer|any First argument - either a bot player for identification or a message part
+---@param ... any Additional message parts to print
+---@return nil
+local function StuckPrint(botOrMsg, ...)
+	if DEBUG_STUCK then
 		-- Check if first arg is a bot player - if so, show which Flesh Creeper number
 		local prefix = "[FleshCreeper]"
 		local args = {...}
@@ -685,21 +706,19 @@ local function IsPositionBlacklisted(bot, pos)
 
 	local currentTime = CurTime()
 	local validBlacklist = {}
+	local isBlacklisted = false
 
 	for _, entry in ipairs(mem.BlacklistedBuildPositions) do
-		-- Check if blacklist entry is still valid (not expired)
 		if currentTime - entry.time < BLACKLIST_EXPIRY_TIME then
 			table.insert(validBlacklist, entry)
-			-- Check if position is within 500 units of blacklisted position
 			if pos:Distance(entry.pos) < 500 then
-				return true
+				isBlacklisted = true
 			end
 		end
 	end
 
-	-- Clean up expired entries
 	mem.BlacklistedBuildPositions = validBlacklist
-	return false
+	return isBlacklisted
 end
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
@@ -762,10 +781,21 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 		-- Check not too close to humans (match game: GAMEMODE.CreeperNestDistBuild = 420)
 		local minHumanDist = 420
+		local maxHumanDist = 900
+		local closestDist = math.huge
+
 		for _, humanData in ipairs(humans) do
-			if humanData.pos:Distance(testPos) < minHumanDist then
-				return nil -- Too close to human
+			local dist = humanData.pos:Distance(testPos)
+			if dist < closestDist then
+				closestDist = dist
 			end
+			if dist < minHumanDist then
+				return nil -- Занадто близько до людини
+			end
+		end
+
+		if closestDist > maxHumanDist then
+			return nil -- Занадто далеко (запобігає циклічному руйнуванню)
 		end
 
 		-- Check if position is blacklisted (nest was shot there before)
@@ -1251,13 +1281,16 @@ end
 ---@param bot GPlayer The bot player
 ---@return GEntity? The unbuilt nest entity, or nil if none
 local function GetUnbuiltNest(bot)
-	local uid = bot:UniqueID()
-	for _, ent in ipairs(ents.FindByClass("prop_creepernest")) do
-		if IsValid(ent) and ent.OwnerUID == uid and not ent:GetNestBuilt() then
-			return ent
-		end
-	end
-	return nil
+    local uid = bot:UniqueID()
+    local botPos = bot:GetPos()
+    for _, ent in ipairs(ents.FindByClass("prop_creepernest")) do
+        if IsValid(ent) and ent.OwnerUID == uid and not ent:GetNestBuilt() then
+            if ent:GetPos():Distance(botPos) < 150 then
+                return ent
+            end
+        end
+    end
+    return nil
 end
 
 ---Gets the leader's nest that is being built (unbuilt nest with min progress).
@@ -1368,109 +1401,89 @@ end
 ---@return GEntity? nest The nest needing repair (if any)
 ---@return number? healthPercent Current health percentage
 ---@return number? pathDist Path distance to nearest human
-local function GetClosestNestNeedingRepair()
-	local closestNest, pathDist = GetNestClosestToHumans()
+function HANDLER.GetClosestNestNeedingRepair()
+    local nests = ents.FindByClass("prop_creepernest")
+    local humans = team.GetPlayers(TEAM_HUMAN)
 
-	if not IsValid(closestNest) then
-		return nil, nil, nil
-	end
+    if #nests == 0 or #humans == 0 then 
+        return nil, nil, nil 
+    end
 
-	local needsRepair, healthPercent = IsNestDamaged(closestNest)
+    local bestNest = nil
+    local bestDist = math.huge
+    local bestHealthPercent = 1
 
-	if needsRepair then
-		return closestNest, healthPercent, pathDist
-	end
+    for _, nest in ipairs(nests) do
+        local needsRepair, healthPercent = IsNestDamaged(nest)
+        
+        if needsRepair then
+            local nestPos = nest:GetPos()
+            local minHumanDist = math.huge
+            
+            for _, human in ipairs(humans) do
+                if IsValid(human) and human:Alive() then
+                    local pathDist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                    if not pathDist then
+                        pathDist = nestPos:Distance(human:GetPos()) * 1.1
+                    end
+                    
+                    if pathDist < minHumanDist then
+                        minHumanDist = pathDist
+                    end
+                end
+            end
+            
+            if minHumanDist < bestDist then
+                bestDist = minHumanDist
+                bestNest = nest
+                bestHealthPercent = healthPercent
+            end
+        end
+    end
 
-	return nil, nil, nil
+    if bestNest then
+        return bestNest, bestHealthPercent, bestDist < math.huge and bestDist or nil
+    end
+
+    return nil, nil, nil
 end
 
----Gets any nest that is too far from all humans (900+ units).
----@return GEntity? nest The nest entity too far from humans
----@return number? distance Distance to closest human
 local NEST_TOO_FAR_DISTANCE = 900
 local NEST_TOO_FAR_DISTANCE_SQR = NEST_TOO_FAR_DISTANCE * NEST_TOO_FAR_DISTANCE
-local function GetNestTooFarFromHumans()
-	local humans = team.GetPlayers(TEAM_HUMAN)
-	if #humans == 0 then return nil end
 
-	for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
-		if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
-			local nestPos = nest:GetPos()
-			local closestHumanDistSqr = math.huge
+local function GetFurthestInvalidNest()
+    local humans = team.GetPlayers(TEAM_HUMAN)
+    if #humans == 0 then return nil end
 
-			-- Find the closest human to this nest
-			for _, human in ipairs(humans) do
-				if IsValid(human) and human:Alive() then
-					local dist = nestPos:DistToSqr(human:GetPos())
-					if dist < closestHumanDistSqr then
-						closestHumanDistSqr = dist
-					end
-				end
-			end
+    local furthestNest = nil
+    local maxDistSqr = 0
 
-			-- If closest human is 900+ units away, this nest is too far
-			if closestHumanDistSqr >= NEST_TOO_FAR_DISTANCE_SQR then
-				return nest, math.sqrt(closestHumanDistSqr)
-			end
-		end
-	end
+    for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
+        if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
+            local nestPos = nest:GetPos()
+            local closestHumanDistSqr = math.huge
 
-	return nil
-end
+            for _, human in ipairs(humans) do
+                if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                    local dist = nestPos:DistToSqr(human:GetPos())
+                    if dist < closestHumanDistSqr then
+                        closestHumanDistSqr = dist
+                    end
+                end
+            end
 
----Checks if humans have relocated and a nest is now suboptimal.
----Triggers when humans advance/relocate and nest is left behind.
----@param bot GPlayer The bot player
----@return GEntity? nest Suboptimal nest to destroy
----@return number? nestDist Distance from nest to closest human
----@return number? humanDist Distance from bot to closest human
-local NEST_SUBOPTIMAL_DISTANCE = 700 -- Nest considered suboptimal if >700u from humans
-local HUMAN_RELOCATED_DISTANCE = 600 -- Humans considered "relocated closer" if <600u from bot
-local function GetSuboptimalNestAfterHumanRelocation(bot)
-	local botPos = bot:GetPos()
-	local humans = team.GetPlayers(TEAM_HUMAN)
-	if #humans == 0 then return nil end
+            if closestHumanDistSqr >= NEST_TOO_FAR_DISTANCE_SQR and closestHumanDistSqr > maxDistSqr then
+                maxDistSqr = closestHumanDistSqr
+                furthestNest = nest
+            end
+        end
+    end
 
-	-- Find closest human to the bot
-	local closestHumanToBotDist = math.huge
-	for _, human in ipairs(humans) do
-		if IsValid(human) and human:Alive() and IsValidHumanTarget(human) then
-			local dist = botPos:Distance(human:GetPos())
-			if dist < closestHumanToBotDist then
-				closestHumanToBotDist = dist
-			end
-		end
-	end
+    if furthestNest then
+        return furthestNest, math.sqrt(maxDistSqr)
+    end
 
-	-- If humans are not close to bot, no relocation detected
-	if closestHumanToBotDist > HUMAN_RELOCATED_DISTANCE then
-		return nil
-	end
-
-	-- Humans are close to bot - check if any nest is now suboptimal (too far from humans)
-	for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
-		if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
-			local nestPos = nest:GetPos()
-			local closestHumanToNestDist = math.huge
-
-			-- Find closest human to this nest
-			for _, human in ipairs(humans) do
-				if IsValid(human) and human:Alive() and IsValidHumanTarget(human) then
-					local dist = nestPos:Distance(human:GetPos())
-					if dist < closestHumanToNestDist then
-						closestHumanToNestDist = dist
-					end
-				end
-			end
-
-			-- Nest is suboptimal if humans are close to bot but far from nest
-			if closestHumanToNestDist > NEST_SUBOPTIMAL_DISTANCE then
-				return nest, closestHumanToNestDist, closestHumanToBotDist
-			end
-		end
-	end
-
-	return nil
+    return nil
 end
 
 ---Updates the bot movement and input commands every frame.
@@ -1528,62 +1541,59 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
             end
 
             if closestDist < 150 and IsValid(closestHuman) then
-                -- Оновлюємо ціль завжди, коли вона поруч
-                mem.Volatile.ThreatTarget = closestHuman
-
-                -- Якщо таймер тактики закінчився або його ще не було — приймаємо нове рішення
                 if not mem.Volatile.ThreatResponseUntil or CurTime() > mem.Volatile.ThreatResponseUntil then
-                    -- Встановлюємо таймер на ~1 секунду перед наступним кидком кубика
-                    mem.Volatile.ThreatResponseUntil = CurTime() + math.random(10, 15) / 5
-
-                    if mem.Volatile.FleshcreeperState == STATE_BUILDING then
-                        mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
-                        mem.Volatile.BuildPosition = nil
-                        mem.Volatile.BuildStartTime = nil
-                        mem.Volatile.InterruptFlag = true
-                    end
                     
-                    if math.random() < 0.5 then
-                        mem.Volatile.ThreatResponseType = "flee"
-                        DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! ВТІКАЮ В НЕБО!")
-                    else
-                        mem.Volatile.ThreatResponseType = "fight"
-                        DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! ДАЮ ЗДАЧІ!")
+                    local attackDuration = math.random(10, 20) / 10 
+                    mem.Volatile.ThreatAttackUntil = CurTime() + attackDuration
+                    mem.Volatile.ThreatResponseUntil = mem.Volatile.ThreatAttackUntil + 2.0
+                    mem.Volatile.ThreatTarget = closestHuman
+
+                    -- "ЗАБУВАЄМО" БУДІВНИЦТВО (як при OnTakeDamage)
+                    if mem.Volatile.BuildPosition then
+                        BlacklistPosition(bot, mem.Volatile.BuildPosition, "threat_detected")
                     end
+                    BlacklistPosition(bot, bot:GetPos(), "threat_pos")
+                    
+                    mem.Volatile.InterruptFlag = true
+                    mem.Volatile.BuildPosition = nil
+                    mem.Volatile.BuildStartTime = nil
+                    mem.Volatile.TargetSigil = nil
+                    mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
+                    
+                    DebugPrint(bot, "ГРАВЕЦЬ ПОРУЧ! СПОЧАТКУ Б'Ю, ПОТІМ ТІКАЮ!")
                 end
             end
         end
 
-        -- Виконання поточної тактики (б'ється або тікає, поки діє таймер)
+        -- Виконання послідовної тактики: Бій -> Втеча
         if mem.Volatile.ThreatResponseUntil and CurTime() < mem.Volatile.ThreatResponseUntil then
             local target = mem.Volatile.ThreatTarget
             if IsValid(target) and target:Alive() then
-                local targetPos = target:GetPos()
-                local targetCenterPos = target:WorldSpaceCenter() -- Беремо центр тіла гравця для точного удару
+                local botPos = bot:GetPos()
                 local threatActions = {}
-                local threatForwardSpeed = 0
+                local threatForwardSpeed = 10000 -- Завжди премо на повній швидкості
                 local threatAimAngle = angle_zero
 
-                if mem.Volatile.ThreatResponseType == "flee" then
-                    -- ВТЕЧА
-                    local dirAway = botPos - targetPos
+                -- ПЕРЕВІРКА ФАЗИ: Бій чи Втеча?
+                local isFighting = CurTime() < (mem.Volatile.ThreatAttackUntil or 0)
+
+                if isFighting then
+                    -- ФАЗА БОЮ: Цілимося в центр гравця і атакуємо
+                    local dirTo = target:WorldSpaceCenter() - bot:GetShootPos()
+                    threatAimAngle = dirTo:Angle()
+                    threatActions.Attack = true
+                    threatActions.MoveForward = true
+                else
+                    -- ФАЗА ВТЕЧІ: Розвертаємось спиною і дьорпаємо в небо
+                    local dirAway = botPos - target:GetPos()
                     dirAway.z = 0 
                     dirAway:Normalize()
                     threatAimAngle = dirAway:Angle()
                     threatAimAngle.pitch = -45
                     
-                    threatForwardSpeed = 10000
                     threatActions.MoveForward = true
                     threatActions.Reload = true
                     threatActions.Jump = true
-                else
-                    -- БІЙ: Тепер він цілиться прямо в груди і жорстко пре вперед
-                    local dirTo = targetCenterPos - bot:GetShootPos()
-                    threatAimAngle = dirTo:Angle()
-                    
-                    threatForwardSpeed = 10000
-                    threatActions.MoveForward = true
-                    threatActions.Attack = true
                 end
 
                 local buttons = bit.bor(
@@ -1600,7 +1610,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                 cmd:SetUpMove(0)
                 cmd:SetButtons(buttons)
 
-                return
+                return -- Важливо: перериваємо стандартний рух
             end
         end
     end
@@ -1694,127 +1704,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 			mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
 			return
 		end
-	elseif mem.Volatile.FleshcreeperState == STATE_ATTACKING then
-		-- Attack mode - 2 nests already built, act like normal zombie
-		-- Attack humans, barricades, and sigils
-		result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-		if not result then return end
-
-		-- Handle barricade attacks when stuck
-		if facesHindrance and CurTime() - (bot.D3bot_LastDamage or 0) > 2 then
-			local entity, entityPos = bot:D3bot_FindBarricadeEntity(1)
-			if entity and entityPos then
-				-- Don't attack nests - they're spawn points, not obstacles
-				if entity:GetClass() ~= "prop_creepernest" then
-					mem.BarricadeAttackEntity, mem.BarricadeAttackPos = entity, entityPos
-				end
-			end
-		end
-	elseif mem.Volatile.FleshcreeperState == STATE_FOLLOWING_LEADER then
-		-- Following the lead flesh creeper
-		local leader = GetLeadFleshCreeper()
-		local leaderMem = leader and leader.D3bot_Mem or nil
-
-		-- Check if leader has a nest we should help build
-		local leaderNest = mem.Volatile.LeaderNest or (leader and GetUnbuiltNest(leader))
-		-- Clear invalid OR completed nest reference (completed nests are still IsValid but GetNestBuilt() == true)
-		if leaderNest and (not IsValid(leaderNest) or (leaderNest.GetNestBuilt and leaderNest:GetNestBuilt())) then
-			leaderNest = nil
-			mem.Volatile.LeaderNest = nil
-			-- Try to get leader's current unbuilt nest
-			if leader then
-				leaderNest = GetUnbuiltNest(leader)
-				if leaderNest then
-					mem.Volatile.LeaderNest = leaderNest
-				end
-			end
-		end
-		local leaderNestPos = IsValid(leaderNest) and leaderNest:GetPos() or (mem.Volatile.LeaderNestPos)
-
-		-- PRIORITY 1: Check if leader is stuck attacking func_breakable - help attack it
-		local leaderAttackingBreakable = false
-		if IsValid(leader) and leaderMem then
-			local leaderStuckEntity = leaderMem.StuckAttackEntity
-			if IsValid(leaderStuckEntity) then
-				local entClass = leaderStuckEntity:GetClass()
-				if entClass == "func_breakable" or entClass == "func_physbox" then
-					leaderAttackingBreakable = true
-					local distToLeader = bot:GetPos():Distance(leader:GetPos())
-
-					-- Go to leader position (0 units) and help attack
-					if distToLeader > 30 then
-						-- Move to leader's position
-						bot:D3bot_SetPosTgtOrNil(leader:GetPos(), 0)
-						result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-						if not result then return end
-						DebugPrint("Follower moving to help leader attack breakable, distance:", math.floor(distToLeader))
-					else
-						-- Close enough, attack the same target
-						actions = {}
-						actions.Attack = true
-						aimAngle = (leaderStuckEntity:GetPos() - bot:EyePos()):Angle()
-						forwardSpeed = 0
-						sideSpeed = 0
-						result = true
-						DebugPrint("Follower helping leader attack:", entClass)
-					end
-				end
-			end
-		end
-
-		-- PRIORITY 2: If leader is building and has a nest, go to the nest and help build
-		if not leaderAttackingBreakable and IsValid(leader) and leaderMem and leaderMem.Volatile.FleshcreeperState == STATE_BUILDING and IsValid(leaderNest) then
-			local distToNest = bot:GetPos():Distance(leaderNest:GetPos())
-
-			if distToNest < 50 and bot:IsOnGround() then
-				-- Close enough to nest (practically on top of it), help build it
-				actions = {}
-				actions.Attack2 = true
-
-				local wep = bot:GetActiveWeapon()
-				if IsValid(wep) and wep.SecondaryAttack and wep.GetRightClickStart then
-					local rightClickStart = wep:GetRightClickStart()
-					if rightClickStart == 0 then
-						wep:SecondaryAttack()
-					end
-				end
-
-				-- Tag any nearby unowned nests (in case follower creates one)
-				TagNearbyUnownedNests(bot)
-
-				-- Aim at the nest
-				aimAngle = (leaderNest:GetPos() - bot:EyePos()):Angle()
-
-				forwardSpeed = 0
-				sideSpeed = 0
-				result = true
-				DebugPrint("Follower helping build leader's nest at distance:", math.floor(distToNest))
-			else
-				-- Move towards the nest (not the leader) - get very close (proximity 30)
-				bot:D3bot_SetPosTgtOrNil(leaderNest:GetPos(), 30)
-				result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-				if not result then return end
-				DebugPrint("Follower moving to leader's nest, distance:", math.floor(distToNest))
-			end
-		elseif not leaderAttackingBreakable and IsValid(leader) and leaderNestPos then
-			-- Leader has a nest position but may not be in building state yet, move to nest position
-			local distToNestPos = bot:GetPos():Distance(leaderNestPos)
-			if distToNestPos > 50 then
-				bot:D3bot_SetPosTgtOrNil(leaderNestPos, 30)
-			end
-			result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-			if not result then return end
-		elseif not leaderAttackingBreakable and IsValid(leader) then
-			-- PRIORITY 3: Follow where leader is going at 100 unit distance (no attacking while following)
-			bot:D3bot_SetTgtOrNil(leader, true, 100) -- Follow leader at 100 units, don't attack
-			result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-			if not result then return end
-			DebugPrint("Follower following leader at 100 unit distance")
-		elseif not leaderAttackingBreakable then
-			-- Fallback: just walk (no attacking)
-			result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
-			if not result then return end
-		end
 	elseif mem.Volatile.FleshcreeperState == STATE_FINDING_SIGIL or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
 		-- Movement for finding sigil and moving to build position
 		-- Allow attacking obstacles when stuck
@@ -1836,13 +1725,13 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					isCustomStuck = true
 					-- Print stuck message once when we first detect stuck
 					if mem.Volatile.StuckCounter == 16 then
-						DebugPrint(bot, "STUCK DETECTED! Counter:", mem.Volatile.StuckCounter, "MovedDist:", math.floor(movedDist))
+						StuckPrint(bot, "STUCK DETECTED! Counter:", mem.Volatile.StuckCounter, "MovedDist:", math.floor(movedDist))
 					end
 				end
 			else
 				-- Bot is moving, reset stuck counter
 				if (mem.Volatile.StuckCounter or 0) > 0 then
-					DebugPrint(bot, "Moving again, reset stuck counter. MovedDist:", math.floor(movedDist))
+					StuckPrint(bot, "Moving again, reset stuck counter. MovedDist:", math.floor(movedDist))
 				end
 				mem.Volatile.StuckCounter = 0
 				mem.Volatile.LastMovePos = botPos
@@ -1855,7 +1744,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		local debugInterval = isCustomStuck and 0.5 or 2
 		if not mem.lastDebugMoveTime or CurTime() - mem.lastDebugMoveTime > debugInterval then
 			mem.lastDebugMoveTime = CurTime()
-			DebugPrint(bot, "UpdateBotCmd:", stateName, "StuckCounter:", mem.Volatile.StuckCounter or 0, "isCustomStuck:", isCustomStuck and "YES" or "no")
+			StuckPrint(bot, "UpdateBotCmd:", stateName, "StuckCounter:", mem.Volatile.StuckCounter or 0, "isCustomStuck:", isCustomStuck and "YES" or "no")
 		end
 
 		-- Use WalkAttackAuto which properly handles pathfinding
@@ -1885,14 +1774,14 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 		if actions then
 			if isStuck then
-				DebugPrint(bot, "Stuck state active! isCustomStuck:", isCustomStuck, "facesHindrance:", facesHindrance, "minorStuck:", minorStuck, "majorStuck:", majorStuck)
+				StuckPrint(bot, "Stuck state active! isCustomStuck:", isCustomStuck, "facesHindrance:", facesHindrance, "minorStuck:", minorStuck, "majorStuck:", majorStuck)
 
 				-- JUMP FIRST THEN FORWARD: When stuck, try jumping first to clear obstacle
 				if not mem.Volatile.StuckJumpTime then
 					-- Start jump phase
 					mem.Volatile.StuckJumpTime = CurTime()
 					mem.Volatile.StuckJumpPhase = 0
-					DebugPrint(bot, "Stuck - initiating jump first")
+					StuckPrint(bot, "Stuck - initiating jump first")
 				end
 
 				local jumpElapsed = CurTime() - mem.Volatile.StuckJumpTime
@@ -1901,11 +1790,11 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					if jumpElapsed < 0.3 then
 						actions.Jump = true
 						forwardSpeed = 0 -- Don't move forward while jumping up
-						DebugPrint(bot, "Stuck jump phase 0: jumping")
+						StuckPrint(bot, "Stuck jump phase 0: jumping")
 					else
 						-- Transition to forward phase
 						mem.Volatile.StuckJumpPhase = 1
-						DebugPrint(bot, "Stuck jump phase 1: moving forward")
+						StuckPrint(bot, "Stuck jump phase 1: moving forward")
 					end
 				end
 
@@ -1914,12 +1803,12 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					if jumpElapsed < 0.6 then
 						actions.Jump = false
 						forwardSpeed = 400 -- Move forward aggressively
-						DebugPrint(bot, "Stuck jump phase 1: forward burst")
+						StuckPrint(bot, "Stuck jump phase 1: forward burst")
 					else
 						-- Reset jump cycle - can try again if still stuck
 						mem.Volatile.StuckJumpTime = nil
 						mem.Volatile.StuckJumpPhase = nil
-						DebugPrint(bot, "Stuck jump cycle complete, resetting")
+						StuckPrint(bot, "Stuck jump cycle complete, resetting")
 					end
 				end
 
@@ -1931,7 +1820,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 						local entClass = entity:GetClass()
 						-- Don't attack nests - they're spawn points, not obstacles to destroy
 						if entClass == "prop_creepernest" then
-							DebugPrint(bot, "Found nest via barricade detection, ignoring and moving around")
+							StuckPrint(bot, "Found nest via barricade detection, ignoring and moving around")
 							mem.Volatile.NestBlocking = true
 							mem.Volatile.NestBlockingTime = CurTime()
 							-- Reset cycle counter if a different nest is blocking
@@ -1942,14 +1831,14 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 						-- Don't attack nailed props when finding sigil - move around instead
 						elseif (entClass == "prop_physics" or entClass == "prop_physics_multiplayer") and
 						       entity.GetNumNails and entity:GetNumNails() > 0 then
-							DebugPrint(bot, "Found nailed prop via barricade detection, ignoring and moving around")
+							StuckPrint(bot, "Found nailed prop via barricade detection, ignoring and moving around")
 							mem.Volatile.BarricadeBlocking = true
 							mem.Volatile.BarricadeBlockingTime = CurTime()
 						else
 							mem.Volatile.StuckAttackEntity = entity
 							mem.Volatile.StuckAttackPos = entityPos
 							mem.Volatile.StuckAttackTime = CurTime()
-							DebugPrint(bot, "Found barricade to attack:", entClass)
+							StuckPrint(bot, "Found barricade to attack:", entClass)
 						end
 					end
 
@@ -1982,7 +1871,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 									local entClass = hitEnt:GetClass()
 									-- Don't attack nests - they're not obstacles, move around them
 									if entClass == "prop_creepernest" then
-										DebugPrint("Ignoring nest obstacle, will move around it")
+										StuckPrint("Ignoring nest obstacle, will move around it")
 										mem.Volatile.NestBlocking = true
 										mem.Volatile.NestBlockingTime = CurTime()
 										-- Reset cycle counter if a different nest is blocking
@@ -1992,7 +1881,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 										mem.Volatile.BlockingNestEntity = hitEnt -- Store for potential destruction
 									-- Ignore tables, chairs, and other non-barricade props
 									elseif IsIgnorableProp(hitEnt) then
-										DebugPrint("Ignoring prop (table/furniture):", entClass, hitEnt:GetModel())
+										StuckPrint("Ignoring prop (table/furniture):", entClass, hitEnt:GetModel())
 										mem.Volatile.PropBlocking = true
 										mem.Volatile.PropBlockingTime = CurTime()
 									-- Attack barricades OR breakable brush entities (func_breakable for glass, func_physbox)
@@ -2000,18 +1889,18 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 										mem.Volatile.StuckAttackEntity = hitEnt
 										mem.Volatile.StuckAttackPos = tr.HitPos
 										mem.Volatile.StuckAttackTime = CurTime()
-										DebugPrint("Found attackable obstacle via trace:", entClass)
+										StuckPrint("Found attackable obstacle via trace:", entClass)
 										foundObstacle = true
 										break
 									else
 										-- Other unknown entity - move around
-										DebugPrint("Ignoring unknown entity:", entClass)
+										StuckPrint("Ignoring unknown entity:", entClass)
 										mem.Volatile.PropBlocking = true
 										mem.Volatile.PropBlockingTime = CurTime()
 									end
 								elseif tr.HitWorld then
 									-- Hit world geometry, can't attack but at least we know something's there
-									DebugPrint("Hit world geometry, can't attack")
+									StuckPrint("Hit world geometry, can't attack")
 								end
 							end
 						end
@@ -2030,10 +1919,10 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							if hullTrace.Hit and IsValid(hullTrace.Entity) then
 								local hitEnt = hullTrace.Entity
 								local entClass = hitEnt:GetClass()
-								DebugPrint("Hull trace found:", entClass)
+								StuckPrint("Hull trace found:", entClass)
 								-- Don't attack nests - move around them instead
 								if entClass == "prop_creepernest" then
-									DebugPrint("Ignoring nest in hull trace, will move around it")
+									StuckPrint("Ignoring nest in hull trace, will move around it")
 									mem.Volatile.NestBlocking = true
 									mem.Volatile.NestBlockingTime = CurTime()
 									-- Reset cycle counter if a different nest is blocking
@@ -2043,7 +1932,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 									mem.Volatile.BlockingNestEntity = hitEnt -- Store for potential destruction
 								-- Ignore tables, chairs, and other non-barricade props
 								elseif IsIgnorableProp(hitEnt) then
-									DebugPrint("Ignoring prop in hull trace (table/furniture):", entClass)
+									StuckPrint("Ignoring prop in hull trace (table/furniture):", entClass)
 									mem.Volatile.PropBlocking = true
 									mem.Volatile.PropBlockingTime = CurTime()
 								-- Attack barricades OR breakable brush entities (func_breakable for glass, func_physbox)
@@ -2051,15 +1940,15 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 									mem.Volatile.StuckAttackEntity = hitEnt
 									mem.Volatile.StuckAttackPos = hullTrace.HitPos
 									mem.Volatile.StuckAttackTime = CurTime()
-									DebugPrint("Will attack breakable obstacle:", entClass)
+									StuckPrint("Will attack breakable obstacle:", entClass)
 								elseif entClass ~= "worldspawn" and not hitEnt:IsPlayer() then
 									-- Other unknown entity - move around
-									DebugPrint("Ignoring unknown entity in hull trace:", entClass)
+									StuckPrint("Ignoring unknown entity in hull trace:", entClass)
 									mem.Volatile.PropBlocking = true
 									mem.Volatile.PropBlockingTime = CurTime()
 								end
 							else
-								DebugPrint("No obstacle found in any trace direction")
+								StuckPrint("No obstacle found in any trace direction")
 							end
 						end
 					end
@@ -2071,11 +1960,11 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					local attackPos = mem.Volatile.StuckAttackPos or mem.Volatile.StuckAttackEntity:GetPos()
 					aimAngle = (attackPos - bot:GetShootPos()):Angle()
 					actions.Attack = true
-					DebugPrint("Attacking obstacle:", mem.Volatile.StuckAttackEntity:GetClass())
+					StuckPrint("Attacking obstacle:", mem.Volatile.StuckAttackEntity:GetClass())
 
 					-- Clear stuck target after 5 seconds (try a different approach)
 					if mem.Volatile.StuckAttackTime and CurTime() - mem.Volatile.StuckAttackTime > 5 then
-						DebugPrint("Stuck attack timeout, clearing target")
+						StuckPrint("Stuck attack timeout, clearing target")
 						mem.Volatile.StuckAttackEntity = nil
 						mem.Volatile.StuckAttackPos = nil
 						mem.Volatile.StuckAttackTime = nil
@@ -2110,38 +1999,38 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							-- Move backwards + strafe right
 							forwardSpeed = -250
 							sideSpeed = 350
-							DebugPrint("Nest blocking - moving backwards + right")
+							StuckPrint("Nest blocking - moving backwards + right")
 						elseif phase == 1 then
 							-- Pure strafe left (aggressive)
 							forwardSpeed = 0
 							sideSpeed = -450
-							DebugPrint("Nest blocking - moving left")
+							StuckPrint("Nest blocking - moving left")
 						elseif phase == 2 then
 							-- Move backwards + strafe left
 							forwardSpeed = -250
 							sideSpeed = -350
-							DebugPrint("Nest blocking - moving backwards + left")
+							StuckPrint("Nest blocking - moving backwards + left")
 						elseif phase == 3 then
 							-- Pure strafe right (aggressive)
 							forwardSpeed = 0
 							sideSpeed = 450
-							DebugPrint("Nest blocking - moving right")
+							StuckPrint("Nest blocking - moving right")
 						else
 							-- Move backwards only
 							forwardSpeed = -300
 							sideSpeed = 0
-							DebugPrint("Nest blocking - moving backwards")
+							StuckPrint("Nest blocking - moving backwards")
 						end
 					elseif mem.Volatile.NestBlocking then
 						-- Track nest blocking cycles - if blocked for too long, destroy the nest
 						mem.Volatile.NestBlockingCycles = (mem.Volatile.NestBlockingCycles or 0) + 1
-						DebugPrint("Nest blocking timeout, cycle:", mem.Volatile.NestBlockingCycles)
+						StuckPrint("Nest blocking timeout, cycle:", mem.Volatile.NestBlockingCycles)
 
 						-- After 3 cycles (6 seconds total), destroy the blocking nest
 						-- BUT only if less than 2 nests exist (don't destroy if we need both nests)
 						local currentNestCount = CountAllBuiltNests()
 						if mem.Volatile.NestBlockingCycles >= 3 and IsValid(mem.Volatile.BlockingNestEntity) and currentNestCount < HANDLER.NestsRequired then
-							DebugPrint("NEST BLOCKING TOO LONG - Switching to STATE_DESTROYING_NEST")
+							StuckPrint("NEST BLOCKING TOO LONG - Switching to STATE_DESTROYING_NEST")
 							mem.Volatile.FleshcreeperState = STATE_DESTROYING_NEST
 							mem.Volatile.NestToDestroy = mem.Volatile.BlockingNestEntity
 							mem.Volatile.NestBlockingCycles = nil
@@ -2152,7 +2041,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							-- Reset for next cycle, keep tracking
 							-- If 2 nests exist, just move around instead of destroying
 							if currentNestCount >= HANDLER.NestsRequired then
-								DebugPrint("Nest blocking but 2 nests exist - moving around instead of destroying")
+								StuckPrint("Nest blocking but 2 nests exist - moving around instead of destroying")
 							end
 							mem.Volatile.NestBlocking = nil
 							mem.Volatile.NestBlockingTime = nil
@@ -2165,23 +2054,23 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 						if phase == 0 then
 							forwardSpeed = -250
 							sideSpeed = 400
-							DebugPrint("Barricade blocking - moving backwards + right")
+							StuckPrint("Barricade blocking - moving backwards + right")
 						elseif phase == 1 then
 							forwardSpeed = 0
 							sideSpeed = -450
-							DebugPrint("Barricade blocking - strafing left")
+							StuckPrint("Barricade blocking - strafing left")
 						elseif phase == 2 then
 							forwardSpeed = -250
 							sideSpeed = -400
-							DebugPrint("Barricade blocking - moving backwards + left")
+							StuckPrint("Barricade blocking - moving backwards + left")
 						elseif phase == 3 then
 							forwardSpeed = 0
 							sideSpeed = 450
-							DebugPrint("Barricade blocking - strafing right")
+							StuckPrint("Barricade blocking - strafing right")
 						else
 							forwardSpeed = -350
 							sideSpeed = 0
-							DebugPrint("Barricade blocking - moving backwards")
+							StuckPrint("Barricade blocking - moving backwards")
 						end
 					elseif mem.Volatile.BarricadeBlocking then
 						-- Clear barricade blocking after 2 seconds
@@ -2189,30 +2078,30 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 						mem.Volatile.BarricadeBlocking = nil
 						mem.Volatile.BarricadeBlockingTime = nil
 						mem.Volatile.StuckCounter = nil -- Allow position movement detection to reset
-						DebugPrint("Barricade blocking timeout, trying different approach")
+						StuckPrint("Barricade blocking timeout, trying different approach")
 					elseif mem.Volatile.PropBlocking and mem.Volatile.PropBlockingTime and CurTime() - mem.Volatile.PropBlockingTime < 2 then
 						-- If a non-barricade prop is blocking (table, chair, etc.), move around it
 						local phase = math.floor((CurTime() - mem.Volatile.PropBlockingTime) / 0.4) % 5
 						if phase == 0 then
 							forwardSpeed = -200
 							sideSpeed = 400
-							DebugPrint("Prop blocking - moving backwards + right")
+							StuckPrint("Prop blocking - moving backwards + right")
 						elseif phase == 1 then
 							forwardSpeed = 0
 							sideSpeed = -450
-							DebugPrint("Prop blocking - strafing left")
+							StuckPrint("Prop blocking - strafing left")
 						elseif phase == 2 then
 							forwardSpeed = -200
 							sideSpeed = -400
-							DebugPrint("Prop blocking - moving backwards + left")
+							StuckPrint("Prop blocking - moving backwards + left")
 						elseif phase == 3 then
 							forwardSpeed = 0
 							sideSpeed = 450
-							DebugPrint("Prop blocking - strafing right")
+							StuckPrint("Prop blocking - strafing right")
 						else
 							forwardSpeed = -300
 							sideSpeed = 0
-							DebugPrint("Prop blocking - moving backwards")
+							StuckPrint("Prop blocking - moving backwards")
 						end
 					elseif mem.Volatile.PropBlocking then
 						-- Clear prop blocking after 2 seconds
@@ -2220,7 +2109,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 						mem.Volatile.PropBlocking = nil
 						mem.Volatile.PropBlockingTime = nil
 						mem.Volatile.StuckCounter = nil -- Allow position movement detection to reset
-						DebugPrint("Prop blocking timeout, trying different approach")
+						StuckPrint("Prop blocking timeout, trying different approach")
 					end
 				end
 			else
@@ -2264,6 +2153,50 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		end
 	end
 
+	-- ЛОГІКА МОБІЛЬНОСТІ: Універсальні стрибки з фіксацією фази
+	if result and actions and not (minorStuck or majorStuck or facesHindrance) then
+		local state = mem.Volatile.FleshcreeperState
+		local targetPos = nil
+
+		-- Визначаємо ціль для тактичних стрибків (додали STATE_REPAIRING_NEST)
+		if state == STATE_MOVING_TO_BUILD then
+			if mem.Volatile.BuildPosition then
+				targetPos = mem.Volatile.BuildPosition
+			elseif IsValid(mem.Volatile.NestToRepair) then
+				targetPos = mem.Volatile.NestToRepair:GetPos()
+			end
+		elseif state == STATE_DESTROYING_NEST and IsValid(mem.Volatile.NestToDestroy) then
+			targetPos = mem.Volatile.NestToDestroy:GetPos()
+		end
+
+		-- 1. БЕЗУМОВНА ПЕРЕВІРКА: чи є наказ стрибати? (від рутини або від поранення)
+		if mem.Volatile.LeapEndTime and CurTime() < mem.Volatile.LeapEndTime then
+			-- Поки триває таймер — затискаємо кнопки і дивимося вгору
+			actions.Reload = true
+			actions.Jump = true
+			if aimAngle then
+				aimAngle.pitch = -45
+			end
+		elseif targetPos then
+			-- 2. Якщо наближаємось до цілі (ремонт, злам, будівництво)
+			local distToTarget = bot:GetPos():Distance(targetPos)
+			
+			if distToTarget > 500 and bot:IsOnGround() then
+				mem.Volatile.NextLeapTime = mem.Volatile.NextLeapTime or (CurTime() + math.random(2, 4))
+
+				if CurTime() > mem.Volatile.NextLeapTime then
+					-- ПОЧАТОК ФАЗИ СТРИБКА (тривалість 1 сек)
+					mem.Volatile.LeapEndTime = CurTime() + 1
+					-- Наступний стрибок через 2-4 секунд
+					mem.Volatile.NextLeapTime = CurTime() + math.random(2, 4)
+				end
+			else
+				-- Скидаємо готовність, якщо підійшли близько
+				mem.Volatile.NextLeapTime = CurTime() + 2
+			end
+		end
+	end
+
 	-- Apply buttons and movement (same as undead_fallback)
 	if result and actions then
 		local buttons = bit.bor(
@@ -2281,8 +2214,8 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 		-- Don't kill bot for being stuck when building, following leader, or recently spawned (standing still is expected)
 		local recentSpawn = mem.Volatile.RecentSpawnProtectionTime and mem.Volatile.RecentSpawnProtectionTime > CurTime()
-		if majorStuck and GAMEMODE:GetWaveActive() and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_FOLLOWING_LEADER and not recentSpawn then bot:Kill() end
-
+		if majorStuck and GAMEMODE:GetWaveActive() and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and not recentSpawn then bot:Kill() end
+		
 		if aimAngle then
 			bot:SetEyeAngles(aimAngle)
 			cmd:SetViewAngles(aimAngle)
@@ -2318,222 +2251,43 @@ local function IsInterrupted(mem)
 	return mem.Volatile.InterruptFlag ~= nil
 end
 
----Checks for conditions that should interrupt the current behavior and restart the coroutine.
----@param bot GPlayer The bot player
----@param mem table The bot's D3bot_Mem table
----@return boolean shouldRestart True if coroutine should be restarted
----@return string? reason The reason for restart
 local function CheckForInterrupts(bot, mem)
-	local globalBuiltNests = CountAllBuiltNests()
-
-	-- PRIORITY 1: If 2 nests exist, check for repair or skip destruction
-	-- Building 2 nests takes priority - only repair AFTER 2 nests are built
-	-- Skip repair check if we're already destroying a nest
-	if globalBuiltNests >= HANDLER.NestsRequired then
-		-- Check if closest nest to humans needs repair (only when 2 nests exist)
-		-- Skip if already destroying a nest or already repairing
-		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
-			local nestToRepair, healthPercent, pathDist = GetClosestNestNeedingRepair()
-			if IsValid(nestToRepair) then
-				-- EXCEPTION: Skip repair if nest is too far from humans (>900 units)
-				-- In this case, the nest should be destroyed and rebuilt closer instead
-				if pathDist and pathDist > NEST_TOO_FAR_DISTANCE then
-					DebugPrint("CheckForInterrupts: Skipping repair - nest too far from humans (dist:", math.floor(pathDist), ")")
-					-- Don't return here - fall through to allow destruction check below
-				else
-					mem.Volatile.NestToRepair = nestToRepair
-					mem.Volatile.NestRepairHealthPercent = healthPercent
-					DebugPrint("CheckForInterrupts: 2 nests exist, closest needs repair! Health:", math.floor((healthPercent or 0) * 100), "%")
-					return true, "nest_needs_repair"
-				end
-			end
-		end
-		-- 2 nests exist and no repair needed (or nest too far, or already destroying) - check for destruction
-	end
-
-	-- Less than 2 nests - prioritize building, skip repair check
-
-	-- Get the closest nest to humans - this nest should NEVER be destroyed
+	local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
 	local closestNest, _ = GetNestClosestToHumans()
 
-	-- Check if sigil became corrupted and we need to destroy nests
-	local corruptedSigil = GetCorruptedSigil()
+	local corruptedSigil = D3bot.ZS.GetCorruptedSigil()
 	if IsValid(corruptedSigil) and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
-		local nestToDestroy = GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance)
-		if IsValid(nestToDestroy) then
-			-- PROTECTION: Don't destroy the closest nest to humans
-			if nestToDestroy == closestNest then
-				DebugPrint("CheckForInterrupts: Skipping destruction of closest nest (sigil corrupted)")
-			else
-				-- Check exception: humans near green sigil with no blue sigils left
-				local humansNearGreen = AreHumansNearSigil(corruptedSigil, 2000)
-				local hasBlueSigil = HasUncorruptedSigil()
-				if not (humansNearGreen and not hasBlueSigil) then
-					mem.Volatile.NestToDestroy = nestToDestroy
-					mem.Volatile.CorruptedSigil = corruptedSigil
-					return true, "sigil_corrupted"
-				end
-			end
+		local nestToDestroy = D3bot.ZS.GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance)
+		if IsValid(nestToDestroy) and nestToDestroy ~= closestNest then
+			mem.Volatile.NestToDestroy = nestToDestroy
+			mem.Volatile.CorruptedSigil = corruptedSigil
+			return true, "sigil_corrupted"
 		end
 	end
 
-	-- Check if nest is too far from humans (unless building, already destroying, or already have a nest queued for destruction)
-	local postBuildCooldownActive = mem.Volatile.LastNestBuiltTime and (CurTime() - mem.Volatile.LastNestBuiltTime < 30)
-	if not postBuildCooldownActive and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_MOVING_TO_BUILD and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
-		local farNest, farNestDist = GetNestTooFarFromHumans()
-		if IsValid(farNest) then
-			-- EXCEPTION: If nest is far from humans, destroy it even if it's the closest nest
-			-- This allows rebuilding closer to humans when they've moved far away
-			-- Only the "nest_too_far" check has this exception - other checks still protect closest nest
-			mem.Volatile.NestToDestroy = farNest
-			mem.Volatile.NestTooFarDestroy = true
-			if farNest == closestNest then
-				DebugPrint("CheckForInterrupts: Destroying closest nest because it's too far from humans (dist:", farNestDist, ")")
-			else
-				DebugPrint("CheckForInterrupts: Destroying non-closest nest too far from humans")
-			end
-			return true, "nest_too_far"
-		end
-	end
-
-	-- Check if humans relocated and nest is suboptimal
-	if not postBuildCooldownActive and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_MOVING_TO_BUILD and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
-		if not mem.Volatile.NextRelocationCheck or CurTime() > mem.Volatile.NextRelocationCheck then
-			mem.Volatile.NextRelocationCheck = CurTime() + 10
-			local suboptimalNest, _, _ = GetSuboptimalNestAfterHumanRelocation(bot)
-			if IsValid(suboptimalNest) then
-				-- PROTECTION: Don't destroy the closest nest to humans
-				if suboptimalNest == closestNest then
-					DebugPrint("CheckForInterrupts: Skipping destruction of closest nest (human relocation)")
-				else
-					mem.Volatile.NestToDestroy = suboptimalNest
-					mem.Volatile.NestTooFarDestroy = true
-					return true, "human_relocation"
-				end
+	if globalBuiltNests >= HANDLER.NestsRequired then
+		
+		if not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_REPAIRING_NEST and mem.Volatile.FleshcreeperState ~= STATE_BUILDING then
+			local nestToRepair, healthPercent, pathDist = HANDLER.GetClosestNestNeedingRepair()
+			if IsValid(nestToRepair) then
+				mem.Volatile.NestToRepair = nestToRepair
+				mem.Volatile.NestRepairHealthPercent = healthPercent
+				return true, "nest_needs_repair"
 			end
 		end
-	end
 
-	-- Check for nest relocation need when 2 nests are built
-	local globalBuiltNests = CountAllBuiltNests()
-	if globalBuiltNests >= HANDLER.NestsRequired and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_ATTACKING and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST and not mem.PostBuildBehaviorApplied then
-		local uncoveredHuman, relocateType = FindHumanNotCoveredByNest(2000)
-		if uncoveredHuman and not mem.Volatile.NestRelocationCooldown then
-			-- Find a nest to destroy that is NOT the closest to humans
-			local nestToDestroy = nil
-			for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
-				if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() and nest ~= closestNest then
-					nestToDestroy = nest
-					break
-				end
-			end
-
-			if IsValid(nestToDestroy) then
-				mem.Volatile.NestToDestroy = nestToDestroy
-				mem.Volatile.RelocateTarget = uncoveredHuman
-				mem.Volatile.RelocateType = relocateType
-				mem.Volatile.NestRelocationCooldown = CurTime() + 30
-				return true, "nest_relocation"
-			else
-				DebugPrint("CheckForInterrupts: Cannot relocate - only closest nest available")
+		if not IsValid(mem.Volatile.NestToDestroy) and not IsValid(mem.Volatile.NestToRepair) and mem.Volatile.FleshcreeperState ~= STATE_BUILDING and mem.Volatile.FleshcreeperState ~= STATE_MOVING_TO_BUILD and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+			local farNest, farNestDist = GetFurthestInvalidNest()
+			if IsValid(farNest) then
+				mem.Volatile.NestToDestroy = farNest
+				mem.Volatile.NestTooFarDestroy = true
+				return true, "nest_too_far"
 			end
 		end
+		
 	end
 
 	return false, nil
-end
-
----Applies post-build behavior after 2 nests are built (90% switch class, 10% attack).
----@param bot GPlayer The bot player
----@param mem D3bot_Mem The bot's memory table
----@return boolean True if bot continues (didn't die), false if bot killed itself to switch class
-local function ApplyPostBuildBehavior(bot, mem)
-	-- Mark that post-build behavior has been applied to prevent death-respawn loop
-	mem.PostBuildBehaviorApplied = true
-
-	-- Set post-build cooldown to prevent immediate "too far" destruction after building
-	mem.Volatile.LastNestBuiltTime = CurTime()
-
-	-- Select random post-build option
-	local option = table.Random(HANDLER.PostBuildOptions)
-	DebugPrint("Post-build option selected:", option)
-
-	if option == "switch_class" then
-		-- Check if Flesh Creeper is a boss - bosses cannot suicide, so attack instead
-		local zombieClassTable = bot:GetZombieClassTable()
-		if zombieClassTable and zombieClassTable.Boss then
-			DebugPrint("Post-build: Flesh Creeper is a boss, cannot switch class - attacking instead")
-			mem.Volatile.FleshcreeperState = STATE_ATTACKING
-			mem.Volatile.AttackMode = ATTACK_MODE_HUMANS
-			ClearStuckDetection(mem)
-			-- If leader, update state for followers to mirror
-			if IsLeadFleshCreeper(bot) then
-				UpdateLeaderState(ATTACK_MODE_HUMANS, nil)
-			end
-			local humans = D3bot.RemoveObsDeadTgts(team.GetPlayers(TEAM_HUMAN))
-			if #humans > 0 then
-				bot:D3bot_SetTgtOrNil(table.Random(humans), false, nil)
-				bot:D3bot_UpdatePath(nil, nil)
-			end
-			return true -- Bot continues attacking
-		end
-
-		-- Check if humans are unreachable to decide class selection strategy
-		local humansUnreachable = AreHumansUnreachable(bot)
-		DebugPrint("Humans unreachable:", humansUnreachable)
-
-		-- Switch to attack class and respawn (NO bosses - only wave-unlocked regular zombies)
-		-- If humans are unreachable, prioritize fast attackers
-		local attackClassIndex = GetRandomAttackClassIndex(humansUnreachable)
-		bot.DeathClass = attackClassIndex
-		-- NOTE: D3bot_FleshcreeperBuiltNests flag removed - suicide triggers for FC class switching disabled
-
-		-- If leader, update state for followers to mirror (switch class)
-		if IsLeadFleshCreeper(bot) then
-			UpdateLeaderState(nil, attackClassIndex)
-		end
-
-		local className = GAMEMODE.ZombieClasses[attackClassIndex] and GAMEMODE.ZombieClasses[attackClassIndex].Name or "Unknown"
-		DebugPrint("Switching to class:", className)
-
-		-- Add respawn delay (3 seconds) before spawning as attack class
-		bot.D3bot_RespawnDelayUntil = CurTime() + 3
-		DebugPrint("Respawn delay set:", 3, "seconds")
-
-		ClearStuckDetection(mem)
-		bot:Kill()
-		return false -- Bot died
-	elseif option == "attack_humans" then
-		-- Stay as Flesh Creeper temporarily, attack humans
-		-- But if killed, respawn as random attack class (not Flesh Creeper)
-		mem.Volatile.FleshcreeperState = STATE_ATTACKING
-		mem.Volatile.AttackMode = ATTACK_MODE_HUMANS
-		ClearStuckDetection(mem)
-		bot.DeathClass = GetRandomAttackClassIndex(false) -- Respawn as attack class if killed
-		-- If leader, update state for followers to mirror
-		if IsLeadFleshCreeper(bot) then
-			UpdateLeaderState(ATTACK_MODE_HUMANS, bot.DeathClass)
-		end
-		-- Target a human
-		local humans = D3bot.RemoveObsDeadTgts(team.GetPlayers(TEAM_HUMAN))
-		if #humans > 0 then
-			bot:D3bot_SetTgtOrNil(table.Random(humans), false, nil)
-			bot:D3bot_UpdatePath(nil, nil)
-		end
-		DebugPrint("Post-build: Staying as Flesh Creeper, attacking humans (DeathClass set)")
-		return true -- Bot continues
-	end
-
-	-- Fallback: attack humans (should not reach here with current PostBuildOptions)
-	mem.Volatile.FleshcreeperState = STATE_ATTACKING
-	mem.Volatile.AttackMode = ATTACK_MODE_HUMANS
-	ClearStuckDetection(mem)
-	bot.DeathClass = GetRandomAttackClassIndex(false) -- Respawn as attack class if killed
-	-- If leader, update state for followers to mirror
-	if IsLeadFleshCreeper(bot) then
-		UpdateLeaderState(ATTACK_MODE_HUMANS, bot.DeathClass)
-	end
-	return true
 end
 
 ---Creates the main behavior coroutine for a Flesh Creeper bot.
@@ -2545,95 +2299,55 @@ local function CreateBehaviorCoroutine(bot)
 		local mem = bot.D3bot_Mem
 
 		while true do
-			-- Check if we're interrupted at the start of each cycle
 			if IsInterrupted(mem) then
 				mem.Volatile.InterruptFlag = nil
-				-- Handle the interrupt by breaking out and letting ThinkFunction restart us
 				return
 			end
 
-			-- PHASE 0: Check global nest limit and handle post-build behavior
-			local globalBuiltNests = CountAllBuiltNests()
+			local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
 			if globalBuiltNests >= HANDLER.NestsRequired then
-				-- 2 nests exist - but first check if any nest needs to be destroyed or repaired
-				-- If NestToDestroy is set (from CheckForInterrupts), skip attack mode and go to PHASE 1
+				-- 1. Перевірка: чи є завдання на руйнування (печатки/дистанція)?
 				if IsValid(mem.Volatile.NestToDestroy) then
-					DebugPrint("Coroutine: 2 nests exist but one needs to be destroyed (too far), skipping attack mode")
-					-- Fall through to PHASE 1 below (nest destruction)
-				-- If NestToRepair is set (from CheckForInterrupts), skip attack mode and go to PHASE 1.5
+					DebugPrint("Coroutine: Have nest to destroy, skipping suicide.")
+				
+				-- 2. Перевірка: чи є завдання на ремонт?
 				elseif IsValid(mem.Volatile.NestToRepair) then
-					DebugPrint("Coroutine: 2 nests exist but one needs repair, skipping attack mode")
-					-- Fall through to PHASE 1.5 below
+					DebugPrint("Coroutine: Have nest to repair, skipping suicide.")
+				
 				else
-					-- No destruction or repair needed - apply post build behavior!
-					if not mem.PostBuildBehaviorApplied then
-						-- ВИКЛИКАЄМО ФУНКЦІЮ!
-						DebugPrint("Coroutine: Gonna roll my dice")
-						local botSurvives = ApplyPostBuildBehavior(bot, mem)
-						
-						-- Якщо функція повернула false (випало 90% і бот вбив себе, щоб змінити клас)
-						if not botSurvives then
-							return -- Зупиняємо корутину, бот мертвий
-						end
-					end
-
-					-- Якщо ми дійшли сюди, значить випали 10% (або це Бос) і бот залишається атакувати
-					DebugPrint("Coroutine: 2 nests exist, entering attack mode")
-					mem.Volatile.RecentSpawnProtectionTime = CurTime() + 5
-
-					-- Attack loop - target humans
-					while true do
-						YieldWithState(mem, STATE_ATTACKING)
-						if IsInterrupted(mem) then return end
-
-						-- BARRICADE CHECK: When hitting barricades, check if should repair or rebuild
-						if mem.BarricadeAttackEntity and IsValid(mem.BarricadeAttackEntity) then
-							-- Check every 2 seconds while hitting barricades
-							if not mem.Volatile.BarricadeNestCheckTime or CurTime() > mem.Volatile.BarricadeNestCheckTime then
-								mem.Volatile.BarricadeNestCheckTime = CurTime() + 2
-
-								-- CHECK 1: Any nest below 100% HP? Go repair it
-								local allNests = ents.FindByClass("prop_creepernest")
-								for _, nest in ipairs(allNests) do
-									if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
-										local health = nest:GetNestHealth() or 0
-										local maxHealth = nest:GetNestMaxHealth() or 200
-										if maxHealth > 0 and health < maxHealth then
-											DebugPrint("Coroutine: Hitting barricade - nest needs repair at", math.floor(health/maxHealth*100), "% HP")
-											mem.Volatile.NestToRepair = nest
-											mem.Volatile.NestRepairHealthPercent = health / maxHealth
-											mem.Volatile.InterruptFlag = true
-											mem.Volatile.InterruptReason = "barricade_nest_repair"
-											return -- Exit to handle repair
-										end
-									end
-								end
-
-								-- CHECK 2: Less than 2 nests? Go rebuild
-								local currentNestCount = CountAllBuiltNests()
-								if currentNestCount < HANDLER.NestsRequired then
-									DebugPrint("Coroutine: Hitting barricade - only", currentNestCount, "nests, need to rebuild")
-									mem.PostBuildBehaviorApplied = false -- Allow building again
-									mem.Volatile.AttackMode = nil
-									break -- Exit attack loop to rebuild
-								end
-							end
+					-- ФІНАЛЬНИЙ АУДИТ ПЕРЕД СМЕРТЮ
+					DebugPrint("Coroutine: Performing final audit before class switch...")
+					
+					-- 1. Спершу перевіряємо ЦІЛІСНІСТЬ (Здоров'я < 95%) - ЦЕ ВАЖЛИВІШЕ
+					local damagedNest, _ = HANDLER.GetClosestNestNeedingRepair()
+					if IsValid(damagedNest) then
+						DebugPrint("Coroutine: Wait! Found damaged nest during audit. Going to repair.")
+						mem.Volatile.NestToRepair = damagedNest
+						-- Не вмираємо, цикл піде на PHASE 1.5
+					else
+						-- 2. Якщо всі цілі, перевіряємо АКТУАЛЬНІСТЬ (Дистанція 900)
+						local furthestNest, dist = GetFurthestInvalidNest()
+						if IsValid(furthestNest) then
+							DebugPrint("Coroutine: Wait! Found invalid nest during audit (dist: " .. math.floor(dist) .. "). Relocating.")
+							mem.Volatile.NestToDestroy = furthestNest
+							mem.Volatile.NestTooFarDestroy = true
+							-- Не вмираємо, цикл піде на PHASE 1
 						else
-							-- Not hitting barricade, reset the check timer
-							mem.Volatile.BarricadeNestCheckTime = nil
-						end
-
-						-- Update attack target periodically
-						if not mem.Volatile.AttackTargetTime or CurTime() > mem.Volatile.AttackTargetTime then
-							mem.Volatile.AttackTargetTime = CurTime() + 3
-							local humans = D3bot.RemoveObsDeadTgts(team.GetPlayers(TEAM_HUMAN))
-							if #humans > 0 then bot:D3bot_SetTgtOrNil(table.Random(humans), false, nil) end
-							bot:D3bot_UpdatePath(nil, nil)
+							-- ЯКЩО МИ ТУТ — ВСЕ ІДЕАЛЬНО: 2 гнізда, всі близько, всі цілі.
+							DebugPrint("Coroutine: Audit passed. Both nests are valid and healthy. Switching class.")
+							
+							local humansUnreachable = AreHumansUnreachable(bot)
+							local attackClassIndex = GetRandomAttackClassIndex(humansUnreachable)
+							bot.DeathClass = attackClassIndex
+							
+							bot.D3bot_RespawnDelayUntil = CurTime() + 3
+							ClearStuckDetection(mem)
+							bot:Kill()
+							return -- Повна зупинка корутини
 						end
 					end
-				end -- End of else (no repair needed - attack mode)
-			end -- End of if globalBuiltNests >= NestsRequired
-			-- Less than 2 nests OR nest needs repair - continue with building/repair logic below
+				end
+			end
 
 			-- PHASE 1: Handle destroying nests (if flagged by interrupt)
 			if IsValid(mem.Volatile.NestToDestroy) then
@@ -2658,15 +2372,10 @@ local function CreateBehaviorCoroutine(bot)
 					mem.Volatile.RelocateTarget = nil
 					mem.Volatile.RelocateType = nil
 				else
-					-- Check for more nests near corrupted sigil
-					local corruptedSigil = mem.Volatile.CorruptedSigil or GetCorruptedSigil()
-					local nextNest = IsValid(corruptedSigil) and GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance) or nil
-					if IsValid(nextNest) then
-						mem.Volatile.NestToDestroy = nextNest
-						-- Loop back to destroy this nest
-					else
-						mem.Volatile.CorruptedSigil = nil
-					end
+					-- Руйнування через зіпсовану печатку.
+					-- ПРОСТО очищаємо пам'ять. Бот "провалиться" в будівництво, щоб зробити заміну.
+					-- Друге гніздо він зламає лише тоді, коли добудує це (через CheckForInterrupts).
+					mem.Volatile.CorruptedSigil = nil
 				end
 				mem.Volatile.NestToDestroy = nil
 				ClearStuckDetection(mem)
@@ -2729,172 +2438,8 @@ local function CreateBehaviorCoroutine(bot)
 				local nestsAfterRepair = CountAllBuiltNests()
 				if nestsAfterRepair >= HANDLER.NestsRequired then
 					DebugPrint("Coroutine: Repair complete, 2 nests exist, looping back to PHASE 0")
-					-- Continue will loop back to PHASE 0 at the top of the while loop
+					return -- Continue will loop back to PHASE 0 at the top of the while loop
 				end
-			end
-
-			-- PHASE 2: Check if follower (not leader) - follow the leader
-			local allCreepers = GetAllFleshCreeperBots()
-			if #allCreepers >= 2 and not IsLeadFleshCreeper(bot) then
-				local leader = GetLeadFleshCreeper()
-				if IsValid(leader) then
-					-- Wait for leader's nest to reach 5% (loop until leader starts building)
-					local leaderNest, leaderNestPos = nil, nil
-					local waitStartTime = CurTime()
-					local maxWaitTime = 60 -- Wait up to 60 seconds for leader to start building
-
-					while IsValid(leader) and leader:Alive() and not IsLeadFleshCreeper(bot) do
-						leaderNest, leaderNestPos = GetLeaderNestInProgress(leader, 5)
-						if leaderNest and leaderNestPos then
-							break -- Leader has started building, exit wait loop
-						end
-
-						-- Check if leader has entered attack mode - follower should mirror
-						local leaderMem = leader.D3bot_Mem
-						if leaderMem and leaderMem.Volatile.FleshcreeperState == STATE_ATTACKING then
-							DebugPrint("Coroutine: Leader is attacking, follower mirroring")
-							local leaderAttackMode, leaderDeathClass = GetLeaderState()
-							mem.PostBuildBehaviorApplied = true
-							mem.Volatile.AttackMode = leaderAttackMode or ATTACK_MODE_HUMANS
-							bot.DeathClass = leaderDeathClass or GetRandomAttackClassIndex(false)
-							leaderNest = nil -- Signal to exit follower loop and go to attack
-							break
-						end
-
-						-- Timeout check - if leader takes too long, become independent
-						if CurTime() - waitStartTime > maxWaitTime then
-							DebugPrint("Coroutine: Timeout waiting for leader to build, becoming independent")
-							break
-						end
-
-						-- Just wait in place - no movement or attack
-						bot:D3bot_SetTgtOrNil(nil) -- Clear target
-						ClearStuckDetection(mem) -- Prevent stuck detection
-						YieldWithState(mem, STATE_FOLLOWING_LEADER)
-						if IsInterrupted(mem) then return end
-
-						-- Check if 2 nests already built globally
-						local currentGlobalNests = CountAllBuiltNests()
-						if currentGlobalNests >= HANDLER.NestsRequired then
-							DebugPrint("Coroutine: 2 nests already built while waiting")
-							leaderNest = nil -- Signal to skip follower loop
-							break
-						end
-					end
-
-					if leaderNest and leaderNestPos then
-						DebugPrint("Coroutine: Following leader to help build nest")
-						mem.Volatile.LeaderBot = leader
-						mem.Volatile.LeaderNest = leaderNest
-						mem.Volatile.LeaderNestPos = leaderNestPos
-
-						-- Follow leader and help build
-						while IsValid(leader) and leader:Alive() and not IsLeadFleshCreeper(bot) do
-							YieldWithState(mem, STATE_FOLLOWING_LEADER)
-							if IsInterrupted(mem) then return end
-
-							-- CHECK 1: Exit if 2 nests are built globally (need to check post-build behavior)
-							local currentGlobalNests = CountAllBuiltNests()
-							if currentGlobalNests >= HANDLER.NestsRequired then
-								DebugPrint("Coroutine: 2 nests built globally, exiting follower loop")
-								break
-							end
-
-							-- CHECK 1.5: Check if leader has entered attack mode - follower should mirror
-							local leaderMemCheck = leader.D3bot_Mem
-							if leaderMemCheck and leaderMemCheck.Volatile.FleshcreeperState == STATE_ATTACKING then
-								DebugPrint("Coroutine: Leader is now attacking, follower mirroring")
-								local leaderAttackMode, leaderDeathClass = GetLeaderState()
-								mem.PostBuildBehaviorApplied = true
-								mem.Volatile.AttackMode = leaderAttackMode or ATTACK_MODE_HUMANS
-								bot.DeathClass = leaderDeathClass or GetRandomAttackClassIndex(false)
-								break -- Exit follower loop to go to attack mode
-							end
-
-							-- CHECK 2: If tracked nest is complete, try to get leader's new nest
-							if IsValid(mem.Volatile.LeaderNest) and mem.Volatile.LeaderNest:GetNestBuilt() then
-								DebugPrint("Coroutine: Leader's nest complete, looking for new nest")
-								local newNest, newNestPos = GetLeaderNestInProgress(leader, 5)
-								if newNest and newNestPos then
-									mem.Volatile.LeaderNest = newNest
-									mem.Volatile.LeaderNestPos = newNestPos
-									DebugPrint("Coroutine: Found leader's new nest to help build")
-								else
-									-- Leader doesn't have a new nest yet, keep following
-									mem.Volatile.LeaderNest = nil
-									mem.Volatile.LeaderNestPos = nil
-								end
-							end
-
-							local leaderMem = leader.D3bot_Mem
-							if leaderMem and leaderMem.Volatile.FleshcreeperState == STATE_BUILDING then
-								-- Leader is building, go to nest and help
-								if IsValid(mem.Volatile.LeaderNest) then
-									bot:D3bot_SetPosTgtOrNil(mem.Volatile.LeaderNest:GetPos(), 30)
-								else
-									-- Try to find leader's current unbuilt nest
-									local currentNest = GetUnbuiltNest(leader)
-									if IsValid(currentNest) then
-										mem.Volatile.LeaderNest = currentNest
-										mem.Volatile.LeaderNestPos = currentNest:GetPos()
-										bot:D3bot_SetPosTgtOrNil(currentNest:GetPos(), 30)
-									else
-										-- No nest found, follow leader directly
-										bot:D3bot_SetTgtOrNil(leader, true, 100)
-									end
-								end
-							else
-								-- Follow leader at distance
-								bot:D3bot_SetTgtOrNil(leader, true, 100)
-							end
-							bot:D3bot_UpdatePath(nil, nil)
-						end
-
-						-- Leader died or we became leader or 2 nests built
-						mem.Volatile.LeaderBot = nil
-						mem.Volatile.LeaderNest = nil
-						mem.Volatile.LeaderNestPos = nil
-						ClearStuckDetection(mem)
-
-						-- CHECK 3: If leader suicided after building 2 nests, follower should also suicide
-						-- Mirror the leader's death class if available
-						if LeaderDiedBySuicideWith2Nests and not leader:Alive() then
-							DebugPrint("Coroutine: Leader suicided after 2 nests, follower also suiciding")
-							local _, leaderDeathClass = GetLeaderState()
-							bot.DeathClass = leaderDeathClass or GetRandomAttackClassIndex(false)
-							bot:Kill()
-							return
-						end
-
-						-- CHECK 4: If leader was killed by human (not suicide), follower becomes new leader
-						-- This is handled automatically by GetLeadFleshCreeper() when leader dies
-
-						DebugPrint("Coroutine: No longer following, becoming independent")
-					end
-				end
-			end
-
-			-- Re-check nest count before building (follower might have exited PHASE 2 due to 2 nests built)
-			local nestCheckBeforeBuild = CountAllBuiltNests()
-			if nestCheckBeforeBuild >= HANDLER.NestsRequired then
-				DebugPrint("Coroutine: 2 nests exist after PHASE 2, skipping build phases")
-				-- Loop back to PHASE 0 by yielding and continuing
-				YieldWithState(mem, STATE_FINDING_SIGIL)
-				if IsInterrupted(mem) then return end
-			else
-				-- PHASE 3: Find target sigil and build position
-				DebugPrint("Coroutine: Finding build target")
-				YieldWithState(mem, STATE_FINDING_SIGIL)
-				if IsInterrupted(mem) then return end
-
-				-- Check cooldown
-			if mem.Volatile.NextNestBuildTime and CurTime() < mem.Volatile.NextNestBuildTime then
-				DebugPrint("Coroutine: Waiting for nest build cooldown")
-				while mem.Volatile.NextNestBuildTime and CurTime() < mem.Volatile.NextNestBuildTime do
-					YieldWithState(mem, STATE_FINDING_SIGIL)
-					if IsInterrupted(mem) then return end
-				end
-				mem.Volatile.NextNestBuildTime = nil
 			end
 
 			-- Find build position
@@ -2970,7 +2515,7 @@ local function CreateBehaviorCoroutine(bot)
 					-- Track the nest we're building (will be acquired during the loop)
 					-- We need to track it because GetUnbuiltNest() won't return it once it's complete
 					local buildingNest = nil
-					local initialNestHealth = nil -- Track initial health to detect damage
+					local highestNestHealth = 0 -- Трекаємо пікове здоров'я
 
 					-- Building loop
 					while true do
@@ -2998,30 +2543,32 @@ local function CreateBehaviorCoroutine(bot)
 							end
 						end
 
-						-- Try to acquire the nest reference if we don't have it yet
-						-- The nest is created by UpdateBotCmdFunction calling SecondaryAttack()
+						-- Try to acquire the nest reference
 						if not IsValid(buildingNest) then
 							TagNearbyUnownedNests(bot)
 							buildingNest = GetUnbuiltNest(bot)
 							if IsValid(buildingNest) then
 								DebugPrint("Coroutine: Acquired nest reference:", buildingNest)
-								-- Record initial health to detect if nest gets shot
-								initialNestHealth = buildingNest:GetNestHealth() or 0
+								highestNestHealth = buildingNest:GetNestHealth() or 0
 							end
 						end
 
-						-- NEST DAMAGE CHECK: If nest is being shot by humans, abandon and blacklist position
-						if IsValid(buildingNest) and initialNestHealth then
+						-- ЗАЛІЗОБЕТОННИЙ NEST DAMAGE CHECK
+						if IsValid(buildingNest) then
 							local currentHealth = buildingNest:GetNestHealth() or 0
-							if currentHealth < initialNestHealth then
-								DebugPrint("Coroutine: Nest taking damage! Health:", currentHealth, "/", initialNestHealth, "- abandoning position")
-								-- Blacklist this position so we don't try again
+							
+							-- Якщо здоров'я впало нижче історичного максимуму — нас б'ють!
+							if currentHealth < highestNestHealth then
+								DebugPrint("Coroutine: Nest taking damage! Dropped from", highestNestHealth, "to", currentHealth, "- abandoning position")
 								BlacklistPosition(bot, buildPos, "nest_shot_by_human")
-								-- Clear build state
+								
 								mem.Volatile.BuildPosition = nil
 								mem.Volatile.BuildStartTime = nil
 								ClearStuckDetection(mem)
 								break
+							else
+								-- Оновлюємо пік здоров'я (він росте поки бот будує)
+								highestNestHealth = currentHealth
 							end
 						end
 
@@ -3036,8 +2583,6 @@ local function CreateBehaviorCoroutine(bot)
 
 						if nestComplete then
 							DebugPrint("Coroutine: Nest complete!")
-							mem.Volatile.LastNestBuiltTime = CurTime()
-							mem.Volatile.NextNestBuildTime = CurTime() + 5.1
 							mem.Volatile.BuildPosition = nil
 							mem.Volatile.BuildStartTime = nil
 							ClearStuckDetection(mem)
@@ -3054,7 +2599,6 @@ local function CreateBehaviorCoroutine(bot)
 						end
 					end
 				end
-			end
 			end -- End of else block for nest count check before building
 
 			-- End of cycle, loop back to check nests and continue
@@ -3173,11 +2717,30 @@ end
 ---@param dmg GCTakeDamageInfo The damage info
 ---@return nil
 function HANDLER.OnTakeDamageFunction(bot, dmg)
-	-- If attacked while building, might need to reposition
 	local mem = bot.D3bot_Mem
-	if mem.Volatile.FleshcreeperState == STATE_BUILDING then
-		mem.Volatile.FleshcreeperState = STATE_BACKING_OFF
-		mem.Volatile.BackoffEndTime = CurTime() + 3
+	
+	-- ЗАХИСНИЙ РИВОК: 50% шанс стрибнути при отриманні кожної кулі
+	-- Перевіряємо, щоб випадково не зрізати таймер, якщо він уже в довгому стрибку
+	if math.random() < 0.50 and (not mem.Volatile.LeapEndTime or mem.Volatile.LeapEndTime < CurTime() + 1) then
+		mem.Volatile.LeapEndTime = CurTime() + 1 -- Короткий ривок вгору для ухилення
+	end
+
+	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
+		
+		-- Блокуємо і цільову позицію, і фактичне місце, де бот отримав по голові
+		if mem.Volatile.BuildPosition then
+			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
+		end
+		BlacklistPosition(bot, bot:GetPos(), "took_damage_pos")
+
+		-- Жорстко перериваємо процеси
+		mem.Volatile.InterruptFlag = true
+		mem.Volatile.BuildPosition = nil
+		mem.Volatile.BuildStartTime = nil
+		mem.Volatile.TargetSigil = nil
+		
+		-- МИТТЄВЕ СКИДАННЯ СТАНУ (це вимкне затискання ПКМ)
+		mem.Volatile.FleshcreeperState = STATE_FINDING_SIGIL
 	end
 end
 

@@ -248,9 +248,9 @@ hook.Add("PlayerDeath", D3bot.BotHooksId.."PlayerDeath", function(pl, inflictor,
 						end
 					end
 				end
-
+				
 				-- Якщо гнізд бракує АБО вони задалеко, кидаємо кубик 75%
-				if (builtNestsCount < 2 or hasFarNests) and D3bot.ZS.CanBecomeFleshCreeper() and math.random() < 0.75 then
+				if (builtNestsCount < 2 or hasFarNests or HANDLER.GetClosestNestNeedingRepair()) and D3bot.ZS.CanBecomeFleshCreeper() and math.random() < 0.75 then
 					for _, zombieClass in pairs(GAMEMODE.ZombieClasses) do
 						if zombieClass.Name == "Flesh Creeper" then
 							pl.DeathClass = zombieClass.Index
