@@ -316,108 +316,6 @@ function HANDLER.SelectorFunction(zombieClassName, team)
 	return team == TEAM_UNDEAD and zombieClassName == "Flesh Creeper"
 end
 
--- Local aliases for more shared functions
-local GetUnlockedZombieClasses = D3bot.ZS.GetUnlockedZombieClasses
-
----Checks if humans are unreachable (running away or no valid path).
----@param bot GPlayer The bot player
----@return boolean True if humans appear unreachable
-local function AreHumansUnreachable(bot)
-	if not IsValid(bot) then return false end
-
-	local mem = bot.D3bot_Mem
-	if not mem then return false end
-
-	-- Check if bot has been stuck trying to reach humans
-	if mem.Volatile.StuckCounter and mem.Volatile.StuckCounter >= 3 then
-		return true
-	end
-
-	-- Check if target is too far away and bot can't find path
-	local target = mem.TgtOrNil
-	if IsValid(target) and target:IsPlayer() then
-		local dist = bot:GetPos():Distance(target:GetPos())
-		-- If target is far and we've been chasing for a while without getting closer
-		if dist > 1500 and mem.Volatile.LastTargetDist and dist >= mem.Volatile.LastTargetDist then
-			mem.Volatile.ChasingCounter = (mem.Volatile.ChasingCounter or 0) + 1
-			if mem.Volatile.ChasingCounter >= 5 then
-				return true
-			end
-		else
-			mem.Volatile.ChasingCounter = 0
-		end
-		mem.Volatile.LastTargetDist = dist
-	end
-
-	return false
-end
-
-local CachedWave = -1
-local CachedFastClasses = {}
-local CachedTankClasses = {}
-local CachedFastTotalWeight = 0
-local CachedTankTotalWeight = 0
-
--- Функція оновлення кешу (викликається ТІЛЬКИ при зміні хвилі)
-local function UpdateClassCache()
-    local currentWave = GAMEMODE:GetWave() or 1
-    if CachedWave == currentWave and #CachedFastClasses > 0 then return end
-
-    CachedWave = currentWave
-    CachedFastClasses = {}
-    CachedTankClasses = {}
-    CachedFastTotalWeight = 0
-    CachedTankTotalWeight = 0
-
-    local unlockedClasses = GetUnlockedZombieClasses()
-
-    for _, zombieClass in ipairs(unlockedClasses) do
-		local fastPri = HANDLER.FastAttackerPriority[zombieClass.Name] or 20
-		if fastPri > 0 then
-			table.insert(CachedFastClasses, {index = zombieClass.Index, name = zombieClass.Name, priority = fastPri})
-			CachedFastTotalWeight = CachedFastTotalWeight + fastPri
-		end
-
-		local tankPri = HANDLER.BarricadePriority[zombieClass.Name] or 20
-		if tankPri > 0 then
-			table.insert(CachedTankClasses, {index = zombieClass.Index, name = zombieClass.Name, priority = tankPri})
-			CachedTankTotalWeight = CachedTankTotalWeight + tankPri
-		end
-    end
-
-    table.sort(CachedFastClasses, function(a, b) return a.priority > b.priority end)
-    table.sort(CachedTankClasses, function(a, b) return a.priority > b.priority end)
-end
-
----Gets a random attack class index using highly optimized cached weighted selection.
----@param prioritizeSpeed boolean True = use FastAttackerPriority, false = use BarricadePriority
----@return integer classIndex The selected zombie class index
-local function GetRandomAttackClassIndex(prioritizeSpeed)
-    UpdateClassCache()
-
-    local cache = prioritizeSpeed and CachedFastClasses or CachedTankClasses
-    local totalWeight = prioritizeSpeed and CachedFastTotalWeight or CachedTankTotalWeight
-
-    if #cache == 0 then
-        local defaultClass = GAMEMODE.ZombieClasses[GAMEMODE.DefaultZombieClass]
-        return defaultClass and defaultClass.Index or 1
-    end
-
-    local roll = math.random() * totalWeight
-    local cumulative = 0
-
-    for _, entry in ipairs(cache) do
-        cumulative = cumulative + entry.priority
-        if roll <= cumulative then
-            local mode = prioritizeSpeed and "FastAttacker" or "BarricadeDestroyer"
-            DebugPrint("Selected", mode, "class:", entry.name, "with priority:", entry.priority)
-            return entry.index
-        end
-    end
-
-    return cache[1].index
-end
-
 ---Gets all alive Flesh Creeper bots, sorted by UserID for consistent ordering.
 ---@return GPlayer[] Array of alive Flesh Creeper bot players
 local function GetAllFleshCreeperBots()
@@ -442,132 +340,6 @@ local CurrentFleshCreeperLeader = nil
 -- true = leader suicided after finishing 2 nests → followers should also suicide
 -- false = leader was killed by human (or nests incomplete) → follower becomes new leader
 local LeaderDiedBySuicideWith2Nests = false
-
--- Track leader's attack mode and death class for follower mirroring
-local LeaderAttackMode = nil
-local LeaderDeathClass = nil
-
----Updates leader state tracking (called when leader changes attack mode or class).
----@param attackMode integer? The attack mode (ATTACK_MODE_HUMANS, etc.)
----@param deathClass integer? The death class index
-local function UpdateLeaderState(attackMode, deathClass)
-	LeaderAttackMode = attackMode
-	LeaderDeathClass = deathClass
-	DebugPrint("Leader state updated - AttackMode:", attackMode, "DeathClass:", deathClass)
-end
-
----Gets the leader's current attack mode and death class for follower mirroring.
----@return integer?, integer? attackMode, deathClass
-local function GetLeaderState()
-	return LeaderAttackMode, LeaderDeathClass
-end
-
----Checks if the current leader is still valid (alive and still a Flesh Creeper).
----@return boolean True if current leader is valid
-local function IsLeaderStillValid()
-	if not IsValid(CurrentFleshCreeperLeader) then return false end
-	if not CurrentFleshCreeperLeader:Alive() then return false end
-	if CurrentFleshCreeperLeader:Team() ~= TEAM_UNDEAD then return false end
-	local class = CurrentFleshCreeperLeader:GetZombieClassTable()
-	if not class or class.Name ~= "Flesh Creeper" then return false end
-	return true
-end
-
--- Distance threshold for considering two creepers at "similar" distance (use random selection)
-local SIMILAR_DISTANCE_THRESHOLD = 200
-
----Selects a new leader (whichever creeper is closest to any human via path distance).
----If two creepers are at similar distance (within threshold), randomly choose one.
----@param creepers GPlayer[] Array of Flesh Creeper bot players
----@return GPlayer? The selected leader bot, or nil if no creepers
-local function SelectNewLeader(creepers)
-	-- Get all valid humans
-	local humans = {}
-	for _, human in ipairs(team.GetPlayers(TEAM_HUMAN)) do
-		if IsValidHumanTarget(human) then
-			table.insert(humans, human)
-		end
-	end
-
-	-- If no humans, fallback to random creeper
-	if #humans == 0 then
-		return table.Random(creepers)
-	end
-
-	-- Calculate minimum distance from each creeper to any human
-	local creeperDistances = {}
-	for _, creeper in ipairs(creepers) do
-		local minDist = math.huge
-		local creeperPos = creeper:GetPos()
-
-		for _, human in ipairs(humans) do
-			local dist = creeperPos:Distance(human:GetPos())
-			if dist < minDist then
-				minDist = dist
-			end
-		end
-
-		table.insert(creeperDistances, {creeper = creeper, dist = minDist})
-		DebugPrint("SelectNewLeader: Creeper", creeper:Nick(), "distance to human:", math.floor(minDist))
-	end
-
-	-- Sort by distance (closest first)
-	table.sort(creeperDistances, function(a, b) return a.dist < b.dist end)
-
-	-- Check if top creepers are at similar distance (within threshold)
-	if #creeperDistances >= 2 then
-		local distDiff = math.abs(creeperDistances[1].dist - creeperDistances[2].dist)
-		if distDiff <= SIMILAR_DISTANCE_THRESHOLD then
-			-- Similar distance - randomly choose between the closest ones
-			local similarCreepers = {creeperDistances[1].creeper, creeperDistances[2].creeper}
-			local chosen = table.Random(similarCreepers)
-			DebugPrint("SelectNewLeader: Similar distance (diff:", math.floor(distDiff), "), randomly chose:", chosen:Nick())
-			return chosen
-		end
-	end
-
-	local chosen = creeperDistances[1].creeper
-	DebugPrint("SelectNewLeader: Closest creeper to human is", chosen:Nick(), "at distance", math.floor(creeperDistances[1].dist))
-	return chosen
-end
-
----Gets the lead Flesh Creeper bot (persistent until leader dies).
----@return GPlayer? The lead Flesh Creeper bot, or nil if none exist
-local function GetLeadFleshCreeper()
-	local creepers = GetAllFleshCreeperBots()
-	if #creepers == 0 then
-		CurrentFleshCreeperLeader = nil
-		return nil
-	end
-	if #creepers == 1 then
-		CurrentFleshCreeperLeader = creepers[1]
-		return creepers[1]
-	end
-
-	-- Check if current leader is still valid
-	if IsLeaderStillValid() then
-		-- Make sure leader is still in the creepers list (still a Flesh Creeper bot)
-		for _, creeper in ipairs(creepers) do
-			if creeper == CurrentFleshCreeperLeader then
-				return CurrentFleshCreeperLeader -- Leader is still valid, keep them
-			end
-		end
-	end
-
-	-- Leader is invalid (dead, switched class, or doesn't exist) - select new leader
-	local newLeader = SelectNewLeader(creepers)
-	CurrentFleshCreeperLeader = newLeader
-	DebugPrint("New Flesh Creeper leader selected:", newLeader and newLeader:Nick() or "none")
-	return newLeader
-end
-
----Checks if this bot is the lead Flesh Creeper.
----@param bot GPlayer The bot player to check
----@return boolean True if this bot is the leader
-local function IsLeadFleshCreeper(bot)
-	local leader = GetLeadFleshCreeper()
-	return leader == bot
-end
 
 ---Finds a blue (uncorrupted) sigil to target for nest building.
 ---Priority 1: Sigil with humans nearby (within 2000 units)
@@ -2336,8 +2108,8 @@ local function CreateBehaviorCoroutine(bot)
 							-- ЯКЩО МИ ТУТ — ВСЕ ІДЕАЛЬНО: 2 гнізда, всі близько, всі цілі.
 							DebugPrint("Coroutine: Audit passed. Both nests are valid and healthy. Switching class.")
 							
-							local humansUnreachable = AreHumansUnreachable(bot)
-							local attackClassIndex = GetRandomAttackClassIndex(humansUnreachable)
+							local humansUnreachable = D3bot.ZS.AreHumansUnreachable(bot)
+							local attackClassIndex = D3bot.ZS.GetSmartClassIndex(humansUnreachable)
 							bot.DeathClass = attackClassIndex
 							
 							bot.D3bot_RespawnDelayUntil = CurTime() + 3
@@ -2647,7 +2419,7 @@ local function ThinkFunction_Coroutine(bot)
 		end
 		if isExtra then
 			DebugPrint("Coroutine: Too many Flesh Creepers, switching class")
-			local attackClassIndex = GetRandomAttackClassIndex(false)
+			local attackClassIndex = D3bot.ZS.GetSmartClassIndex(false)
 			if attackClassIndex then
 				bot.DeathClass = attackClassIndex
 				bot:Kill()
@@ -2668,7 +2440,7 @@ local function ThinkFunction_Coroutine(bot)
 		mem.Volatile.FleshcreeperState = STATE_ATTACKING
 		mem.Volatile.AttackMode = table.Random({ATTACK_MODE_HUMANS, ATTACK_MODE_BARRICADES, ATTACK_MODE_SIGILS})
 		mem.Volatile.RecentSpawnProtectionTime = CurTime() + 5
-		bot.DeathClass = GetRandomAttackClassIndex(false)
+		bot.DeathClass = D3bot.ZS.GetSmartClassIndex(false)
 		-- Reset coroutine to use attack-only behavior
 		mem.Volatile.BehaviorCoroutine = nil
 	end

@@ -1,6 +1,7 @@
 
 translate.AddLanguage("ua", "Ukrainian")
 
+LANGUAGE.D3bot_intermissiononly		    = "Щоб стати людиною пропишіть !human безпосередньо під час перерви між хвилями."
 LANGUAGE.D3bot_redeemwave				= "Ви можете написати в чаті !human перед хвилею %u щоб грати за врятованого."
 LANGUAGE.D3bot_botmapsonly				= "Ця команда включена лише на мапах з ботами!"
 LANGUAGE.D3bot_toolate					= "Занадто пізно для самовоскресіння (ви можете самовоскреснути тільки до хвилі %u)."
