@@ -1521,7 +1521,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 	local result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance
 
-	if mem.Volatile.FleshcreeperState ~= STATE_ATTACKING and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+	if mem.Volatile.FleshcreeperState ~= STATE_ATTACKING then
         local botPos = bot:GetPos()
 
         if (mem.Volatile.NextThreatCheckTime or 0) < CurTime() then

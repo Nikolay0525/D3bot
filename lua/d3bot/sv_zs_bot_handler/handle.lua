@@ -3,7 +3,7 @@ D3bot.Handlers = {}
 -- Debug flag for spawn logging (set to true to enable [D3bot Spawn] console messages)
 local DEBUG_SPAWN = false      
 
-local DEBUG_BEHAVIOR = false 
+local DEBUG_BEHAVIOR = false   
 -- Debug flag for Flesh Creeper death logging (set to true to enable natural death messages)
 local DEBUG_FLESH_CREEPER = false    
 
@@ -249,8 +249,23 @@ hook.Add("PlayerDeath", D3bot.BotHooksId.."PlayerDeath", function(pl, inflictor,
 					end
 				end
 				
+				-- У твоєму скрипті спавну:
+				local FC = D3bot.Handlers.Undead_Fleshcreeper
+				local needsRepair = false
+
+				-- Безпечно перевіряємо, чи функція існує і чи повертає вона щось
+				if FC and FC.GetClosestNestNeedingRepair then
+					if FC.GetClosestNestNeedingRepair() ~= nil then
+						needsRepair = true
+						
+						if DEBUG_BEHAVIOR then
+							print("[D3bot] Smart Spawn - closest nest need repair")
+						end
+					end
+				end
+
 				-- Якщо гнізд бракує АБО вони задалеко, кидаємо кубик 75%
-				if (builtNestsCount < 2 or hasFarNests or HANDLER.GetClosestNestNeedingRepair()) and D3bot.ZS.CanBecomeFleshCreeper() and math.random() < 0.75 then
+				if (builtNestsCount < 2 or hasFarNests or needsRepair) and D3bot.ZS.CanBecomeFleshCreeper() and math.random() < 0.75 then
 					for _, zombieClass in pairs(GAMEMODE.ZombieClasses) do
 						if zombieClass.Name == "Flesh Creeper" then
 							pl.DeathClass = zombieClass.Index
