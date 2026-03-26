@@ -7,7 +7,7 @@ local DEBUG_NEST_TARGET = false
 -- Debug flag for ambush/flee behavior (set to true to enable [D3bot Behavior] messages)
 local DEBUG_BEHAVIOR = false 
 
-local DEBUG_STRAFE = false  
+local DEBUG_STRAFE = true   
 
 local DEBUG_KEYS = false     
 
@@ -1050,6 +1050,18 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 				
 				-- Якщо скалярний добуток >= 0.5, бот знаходиться в конусі 120 градусів перед гравцем
 				local isLookingAtBot = (targetAim:Dot(dirToBot) >= 0.5)
+				local isVisible = false
+
+				if isLookingAtBot then
+					local tr = util.TraceLine({
+						start = botPos + Vector(0, 0, 48),    -- Рівень грудей бота
+						endpos = targetPos + Vector(0, 0, 48), -- Рівень грудей гравця
+						filter = {bot, target},               -- Ігноруємо самі модельки гравців
+						mask = MASK_OPAQUE                    -- Промінь зупиняється тільки об глухі стіни та ящики
+					})
+					isVisible = not tr.Hit -- Якщо промінь НЕ врізався у стіну, значить між нами чисто
+				end
+
 
 				-- 1. БЛОК ПРИЙНЯТТЯ РІШЕНЬ
 				if CurTime() > mem.Volatile.NextDodgeTime then
@@ -1069,7 +1081,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							print("[D3bot Dodge] " .. bot:Nick() .. " -> Ціль з безпечною зброєю ("..wepClass..")! Пру прямо.")
 						end
 
-					elseif isLookingAtBot then
+					elseif isLookingAtBot and isVisible then
 						local isMelee = false
 						local wepBase = string.lower(wep.Base or "")
 						
@@ -1131,12 +1143,13 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					else
 						mem.Volatile.NextDodgeTime = CurTime() + 0.2
 						if DEBUG_STRAFE then
-							print("[D3bot Dodge] " .. bot:Nick() .. " -> Ціль не дивиться! Пру прямо.")
+							local reason = not isLookingAtBot and "Не дивиться" or "За стіною"
+							print("[D3bot Dodge] " .. bot:Nick() .. " -> " .. reason .. "! Пру прямо.")
 						end
 					end
 				end
 
-				if not isLookingAtBot then
+				if not isLookingAtBot or not isVisible then
 					mem.Volatile.DodgeStrafe = 0
 					mem.Volatile.BackwardUntil = nil
 				end
