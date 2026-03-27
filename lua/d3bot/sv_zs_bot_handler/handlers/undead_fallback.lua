@@ -1572,8 +1572,7 @@ end
 
 ---Called when the bot dies.
 function HANDLER.OnDeathFunction(bot)
-    local humansUnreachable = D3bot.ZS.AreHumansUnreachable(bot)
-    bot.DeathClass = D3bot.ZS.GetSmartClassIndex(bot, humansUnreachable)
+    bot.DeathClass = D3bot.ZS.GetSmartClassIndex(bot)
     HANDLER.RerollTarget(bot)
 end
 

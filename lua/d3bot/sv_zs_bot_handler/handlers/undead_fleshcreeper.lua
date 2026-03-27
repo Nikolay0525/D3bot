@@ -2108,8 +2108,7 @@ local function CreateBehaviorCoroutine(bot)
 							-- ЯКЩО МИ ТУТ — ВСЕ ІДЕАЛЬНО: 2 гнізда, всі близько, всі цілі.
 							DebugPrint("Coroutine: Audit passed. Both nests are valid and healthy. Switching class.")
 							
-							local humansUnreachable = D3bot.ZS.AreHumansUnreachable(bot)
-							local attackClassIndex = D3bot.ZS.GetSmartClassIndex(humansUnreachable)
+							local attackClassIndex = D3bot.ZS.GetSmartClassIndex(bot)
 							bot.DeathClass = attackClassIndex
 							
 							bot.D3bot_RespawnDelayUntil = CurTime() + 3
@@ -2419,7 +2418,7 @@ local function ThinkFunction_Coroutine(bot)
 		end
 		if isExtra then
 			DebugPrint("Coroutine: Too many Flesh Creepers, switching class")
-			local attackClassIndex = D3bot.ZS.GetSmartClassIndex(false)
+			local attackClassIndex = D3bot.ZS.GetSmartClassIndex(bot)
 			if attackClassIndex then
 				bot.DeathClass = attackClassIndex
 				bot:Kill()
@@ -2440,7 +2439,7 @@ local function ThinkFunction_Coroutine(bot)
 		mem.Volatile.FleshcreeperState = STATE_ATTACKING
 		mem.Volatile.AttackMode = table.Random({ATTACK_MODE_HUMANS, ATTACK_MODE_BARRICADES, ATTACK_MODE_SIGILS})
 		mem.Volatile.RecentSpawnProtectionTime = CurTime() + 5
-		bot.DeathClass = D3bot.ZS.GetSmartClassIndex(false)
+		bot.DeathClass = D3bot.ZS.GetSmartClassIndex(bot)
 		-- Reset coroutine to use attack-only behavior
 		mem.Volatile.BehaviorCoroutine = nil
 	end
