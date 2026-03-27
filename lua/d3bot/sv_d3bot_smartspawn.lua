@@ -100,24 +100,22 @@ D3bot.ZS.LeaperPriority = {
     ["Fresh Dead"] = 60
 }
 
+-- Локальна функція для точної ідентифікації барикад ZS
 local function IsValidBarricade(ent)
     if not IsValid(ent) then return false end
     
     local entClass = ent:GetClass()
-
-    print(entClass)
     
     if entClass == "prop_physics" or entClass == "prop_physics_multiplayer" then
-        numNailsCount = ent:GetNumNails()
-        print(numNailsCount)
-        if numNailsCount > 0 then
-            print("baricada")
+        -- Використання підтвердженого методу IsNailed
+        if ent.IsNailed and ent:IsNailed() then
             return true
         end
+        
+        -- Перевірка наявності власника-гравця (розгорнуті пропи оборони)
         local owner = ent:GetOwner()
-        if IsValid(owner) and owner:IsPlayer() then
-            print("ne baricada")
-            return true
+        if IsValid(owner) and owner:IsPlayer() then 
+            return true 
         end
     end
     
@@ -166,7 +164,6 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     local humansNearby = 0
     local propsNearby = 0
     
-    
     for _, ent in ipairs(ents.FindInSphere(lastPos, 500)) do
         if ent:IsPlayer() and ent:Team() == TEAM_HUMAN and ent:Alive() then
             humansNearby = humansNearby + 1
@@ -174,9 +171,6 @@ function D3bot.ZS.CalculateSpawnContext(bot)
             propsNearby = propsNearby + 1
         end
     end
-    
-    print(humansNearby)
-    print(propsNearby)
 
     if humansNearby >= 1 and propsNearby >= 2 then
         tankScore = tankScore + 1.0
