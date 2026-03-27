@@ -100,24 +100,40 @@ D3bot.ZS.LeaperPriority = {
     ["Fresh Dead"] = 60
 }
 
-function D3bot.ZS.AreHumansUnreachable(bot)
-    local mem = bot.D3bot_Mem
-    if not mem then return false end
+local function IsValidBarricade(ent)
+    if not IsValid(ent) then return false end
     
-    local target = mem.TgtOrNil
-    if IsValid(target) and target:IsPlayer() then
-        local dist = bot:GetPos():DistToSqr(target:GetPos())
-        if dist > 2250000 then -- 1500 * 1500
+    local entClass = ent:GetClass()
+
+    print(entClass)
+    
+    if entClass == "prop_physics" or entClass == "prop_physics_multiplayer" then
+        numNailsCount = ent:GetNumNails()
+        print(numNailsCount)
+        if numNailsCount > 0 then
+            print("baricada")
+            return true
+        end
+        local owner = ent:GetOwner()
+        if IsValid(owner) and owner:IsPlayer() then
+            print("ne baricada")
             return true
         end
     end
+    
     return false
 end
 
 -- Хук для відстеження початку переслідування
 function D3bot.ZS.OnTargetAcquired(bot, target)
-    if not D3bot.ZS.BotStats[bot:EntIndex()] then D3bot.ZS.BotStats[bot:EntIndex()] = {} end
-    D3bot.ZS.BotStats[bot:EntIndex()].ChaseStartTime = CurTime()
+    local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
+    stats.ChaseStartTime = CurTime()
+    stats.CurrentTarget = target
+    D3bot.ZS.BotStats[bot:EntIndex()] = stats
+    
+    if D3bot.ZS.DebugSmartSpawn then
+        MsgC(Color(255, 150, 0), "[D3bot SmartSpawn] ", Color(255, 255, 255), "Bot ", bot:EntIndex(), " started chasing ", target:GetName(), "\n")
+    end
 end
 
 function D3bot.ZS.CalculateSpawnContext(bot)
@@ -150,15 +166,19 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     local humansNearby = 0
     local propsNearby = 0
     
+    
     for _, ent in ipairs(ents.FindInSphere(lastPos, 500)) do
         if ent:IsPlayer() and ent:Team() == TEAM_HUMAN and ent:Alive() then
             humansNearby = humansNearby + 1
-        elseif ent:GetClass() == "prop_physics" then
+        elseif IsValidBarricade(ent) then
             propsNearby = propsNearby + 1
         end
     end
     
-    if humansNearby >= 3 and propsNearby >= 2 then
+    print(humansNearby)
+    print(propsNearby)
+
+    if humansNearby >= 1 and propsNearby >= 2 then
         tankScore = tankScore + 1.0
     elseif humansNearby == 0 then
         fastScore = fastScore + 0.6
@@ -248,7 +268,8 @@ end
 
 -- Хук смерті бота для збору аналітики
 hook.Add("PlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, inflictor, attacker)
-    if not victim.IsD3bot or not victim:IsD3bot() then return end
+    -- Використовуємо нативну функцію рушія для визначення бота
+    if not victim:IsBot() then return end 
     
     local stats = D3bot.ZS.BotStats[victim:EntIndex()] or {}
     local victimPos = victim:GetPos()
@@ -270,9 +291,17 @@ hook.Add("PlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, infl
         stats.ZDiscrepancy = 0
     end
     
-    local isMelee = false
-    if IsValid(inflictor) then
-        isMelee = inflictor:IsWeapon() and (inflictor.IsMelee or inflictor:GetClass() == "weapon_crowbar")
+    -- Коригування інфліктора (отримання фактичної зброї)
+    local weapon = inflictor
+    if IsValid(attacker) and attacker:IsPlayer() and inflictor == attacker then
+        weapon = attacker:GetActiveWeapon()
+    end
+    
+    -- Розширений аналіз зброї
+    if IsValid(weapon) and weapon:IsWeapon() then
+        local weaponClass = weapon:GetClass()
+        -- Багато зброї ближнього бою в ZS не мають прапорця IsMelee, тому шукаємо по імені класу
+        local isMelee = weapon.IsMelee or string.find(weaponClass, "melee") or weaponClass == "weapon_crowbar"
         
         if isMelee then
             stats.KilledByMeleeCount = (stats.KilledByMeleeCount or 0) + 1
@@ -285,8 +314,44 @@ hook.Add("PlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, infl
     
     D3bot.ZS.BotStats[victim:EntIndex()] = stats
     
-    DebugPrint("Bot ", victim:EntIndex(), " died. Dist: ", math.Round(stats.DeathDistance, 1), 
+    DebugPrint("DEATH RECORDED | Bot: ", victim:EntIndex(), 
+               " | Dist: ", math.Round(stats.DeathDistance, 1), 
                " | Z-Delta: ", math.Round(stats.ZDiscrepancy, 1), 
                " | MeleeStreak: ", stats.KilledByMeleeCount or 0, 
                " | BulletStreak: ", stats.KilledByBulletCount or 0)
+end)
+
+-- Глобальний монітор зміни цілей
+local nextThink = 0
+hook.Add("Think", "D3bot_SmartSpawn_TargetTracker", function()
+    -- Оптимізація: перевірка раз на 0.5 секунди, цього достатньо для ШІ
+    if CurTime() < nextThink then return end
+    nextThink = CurTime() + 0.5
+
+    -- D3bot у ZS використовують fake clients (player)
+    for _, bot in ipairs(player.GetAll()) do
+        if bot:IsBot() and bot.IsD3bot and bot:IsD3bot() and bot:Alive() then
+            local mem = bot.D3bot_Mem
+            if mem then
+                local currentTarget = mem.TgtOrNil
+                local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
+                local previousTarget = stats.CurrentTarget
+                
+                -- Виявлення переходу стану: з'явилася нова валідна ціль (гравець)
+                if IsValid(currentTarget) and currentTarget:IsPlayer() and currentTarget:Alive() then
+                    if previousTarget ~= currentTarget then
+                        -- Ціль змінилася або з'явилася вперше
+                        D3bot.ZS.OnTargetAcquired(bot, currentTarget)
+                    end
+                else
+                    -- Ціль втрачена або мертва, не скидаємо ChaseStartTime, 
+                    -- але очищаємо CurrentTarget, щоб зафіксувати нову при появі
+                    if previousTarget ~= nil then
+                        stats.CurrentTarget = nil
+                        D3bot.ZS.BotStats[bot:EntIndex()] = stats
+                    end
+                end
+            end
+        end
+    end
 end)
