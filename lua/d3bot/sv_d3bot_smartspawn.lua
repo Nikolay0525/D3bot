@@ -101,52 +101,45 @@ end
 -- ТАБЛИЦІ ПРІОРИТЕТІВ КЛАСІВ
 -- ====================================================================
 D3bot.ZS.BarricadePriority = {
-    ["Zombie Gore Blaster"] = 100,
-    ["Noxious Ghoul"] = 85,
-    ["Lacerator Charging"] = 80,
-    ["Elder Ghoul"] = 75,
-    ["Wild Poison Zombie"] = 70,
-    ["Super Zombie"] = 68,
-    ["Poison Zombie"] = 65,
-    ["Wraith"] = 60,
-    ["Zombie"] = 55,
-    ["Vile Bloated Zombie"] = 48,
-    ["Bloated Zombie"] = 45,
-    ["Tormented Wraith"] = 43,
-    ["Ghoul"] = 35,
-    ["Classic Zombie"] = 33,
-    ["Fresh Dead"] = 30,
-    ["Agile Dead"] = 28,
-    ["Fast Zombie"] = 20,
-    ["Lacerator"] = 18,
-    ["Fast Zombie Slingshot"] = 17,
-    ["Chem Zombie"] = 15,
-    ["Chem Burster"] = 14,
-    ["Eradicator"] = 10,
+    ["Wild Poison Zombie"] = 100,
+    ["Poison Zombie"] = 100,
+    ["Vile Bloated Zombie"] = 100,
+    ["Bloated Zombie"] = 100,
+    ["Tormented Wraith"] = 10,
+    ["Wraith"] = 10,
+    ["Zombie Gore Blaster"] = 50,
+    ["Eradicator"] = 100,
+    ["Zombie"] = 50,
+    ["Frigid Revenant"] = 50,
+    ["Frigid Ghoul"] = 25,
+    ["Noxious Ghoul"] = 50,
+    ["Ghoul"] = 25,
+    ["Elder Ghoul"] = 25,
+    ["Bloodsucker Headcrab"] = 25,
+    ["Fast Headcrab"] = 12,
+    ["Headcrab"] = 12,
     ["Poison Headcrab"] = 0,
     ["Barbed Headcrab"] = 0
 }
 
 D3bot.ZS.FastAttackerPriority = {
+    ["Lacerator"] = 100,
     ["Fast Zombie"] = 100,
-    ["Lacerator"] = 98,
-    ["Lacerator Charging"] = 95,
-    ["Fast Zombie Slingshot"] = 93,
-    ["Wraith"] = 90,
-    ["Tormented Wraith"] = 88,
-    ["Fresh Dead"] = 65,
-    ["Agile Dead"] = 63,
-    ["Ghoul"] = 60,
-    ["Elder Ghoul"] = 58,
-    ["Noxious Ghoul"] = 55,
-    ["Zombie"] = 40,
-    ["Classic Zombie"] = 38,
-    ["Bloated Zombie"] = 20,
-    ["Vile Bloated Zombie"] = 18,
-    ["Poison Zombie"] = 15,
-    ["Wild Poison Zombie"] = 13,
-    ["Super Zombie"] = 10,
-    ["Zombie Gore Blaster"] = 8,
+    ["Agile Dead"] = 25,
+    ["Charger"] = 100,
+    ["Tormented Wraith"] = 25,
+    ["Wraith"] = 25,
+    ["Frigid Revenant"] = 75,
+    ["Frigid Ghoul"] = 50,
+    ["Noxious Ghoul"] = 75,
+    ["Ghoul"] = 50,
+    ["Elder Ghoul"] = 50,
+    ["Zombie Gore Blaster"] = 10,
+    ["Eradicator"] = 20,
+    ["Zombie"] = 10,
+    ["Bloodsucker Headcrab"] = 50,
+    ["Fast Headcrab"] = 25,
+    ["Headcrab"] = 25,
     ["Poison Headcrab"] = 0,
     ["Barbed Headcrab"] = 0
 }
@@ -154,22 +147,19 @@ D3bot.ZS.FastAttackerPriority = {
 D3bot.ZS.BulletResistPriority = {
     ["Skeletal Shambler"] = 100,
     ["Skeletal Walker"] = 90,
-    ["Skeletal Lurker"] = 50
+    ["Skeletal Lurker"] = 45
 }
 
 D3bot.ZS.MeleeResistPriority = {
-    ["Shadow Walker"] = 100,
-    ["Frigid Revenant"] = 90,
-    ["Shadow Lurker"] = 50
+    ["Frigid Revenant"] = 100,
+    ["Shadow Walker"] = 90,
+    ["Shadow Lurker"] = 45
 }
 
 D3bot.ZS.LeaperPriority = {
     ["Fast Zombie"] = 100,
-    ["Lacerator"] = 90,
-    ["Lacerator Charging"] = 85,
-    ["Fast Zombie Slingshot"] = 80,
-    ["Agile Dead"] = 70,
-    ["Fresh Dead"] = 60
+    ["Lacerator"] = 100,
+    ["Agile Dead"] = 25,
 }
 
 local function IsValidBarricade(ent)
