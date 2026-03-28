@@ -371,10 +371,6 @@ function D3bot.ZS.GetSmartClassIndex(bot)
     return combinedPool[1].index
 end
 
--- ====================================================================
--- ХУКИ ТЕЛЕМЕТРІЇ ТА ЖИТТЄВОГО ЦИКЛУ
--- ====================================================================
-
 -- 1. Реєстрація смерті та збір даних
 hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, attacker, dmginfo)
     if not victim:IsBot() then return end 
@@ -400,37 +396,40 @@ hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, at
         stats.LoSDuration = nil
     end
     
-    -- Виправлена помилка визначення attackerPos
+    -- Просторова аналітика ТА розширений аналіз зброї
     if IsValid(attacker) and attacker:IsPlayer() and attacker ~= victim and attacker:Team() == TEAM_HUMAN then
+        -- Обчислення дистанції
         local attackerPos = attacker:GetPos()
         stats.DeathDistance = victimPos:Distance(attackerPos)
         stats.ZDiscrepancy = attackerPos.z - victimPos.z
+        
+        -- Обчислення типу зброї
+        local weapon = inflictor
+        if inflictor == attacker then
+            weapon = attacker:GetActiveWeapon()
+        end
+        
+        if IsValid(weapon) and weapon:IsWeapon() then
+            local weaponClass = weapon:GetClass()
+            local isMelee = weapon.IsMelee or string.find(weaponClass, "melee") or weaponClass == "weapon_crowbar"
+            
+            if isMelee then
+                stats.KilledByMeleeCount = (stats.KilledByMeleeCount or 0) + 1
+                stats.KilledByBulletCount = 0 
+            else
+                stats.KilledByBulletCount = (stats.KilledByBulletCount or 0) + 1
+                stats.KilledByMeleeCount = 0 
+            end
+        end
     else
+        -- Смерть від геометрії карти, самогубство або friendly fire
         stats.DeathDistance = 0
         stats.ZDiscrepancy = 0
     end
-    
-    local weapon = inflictor
-    if IsValid(attacker) and attacker:IsPlayer() and inflictor == attacker then
-        weapon = attacker:GetActiveWeapon()
-    end
-    
-    if IsValid(weapon) and weapon:IsWeapon() then
-        local weaponClass = weapon:GetClass()
-        local isMelee = weapon.IsMelee or string.find(weaponClass, "melee") or weaponClass == "weapon_crowbar"
-        
-        if isMelee then
-            stats.KilledByMeleeCount = (stats.KilledByMeleeCount or 0) + 1
-            stats.KilledByBulletCount = 0 
-        else
-            stats.KilledByBulletCount = (stats.KilledByBulletCount or 0) + 1
-            stats.KilledByMeleeCount = 0 
-        end
-    end
 
     DebugPrint("DEATH RECORDED | Bot: ", victim:EntIndex(), 
-               " | Dist: ", math.Round(stats.DeathDistance, 1), 
-               " | Z-Delta: ", math.Round(stats.ZDiscrepancy, 1), 
+               " | Dist: ", math.Round(stats.DeathDistance or 0, 1), 
+               " | Z-Delta: ", math.Round(stats.ZDiscrepancy or 0, 1), 
                " | MeleeStreak: ", stats.KilledByMeleeCount or 0, 
                " | BulletStreak: ", stats.KilledByBulletCount or 0)
 
@@ -497,4 +496,28 @@ hook.Add("PlayerSpawn", "D3bot_SmartSpawn_InitialTarget", function(bot)
         stats.HuntTarget = nil
         D3bot.ZS.BotStats[bot:EntIndex()] = stats
     end)
+end)
+
+-- ====================================================================
+-- ОЧИЩЕННЯ ПАМ'ЯТІ ПРИ ПЕРЕЗАПУСКУ РАУНДУ
+-- ====================================================================
+hook.Add("PostCleanupMap", "D3bot_SmartSpawn_RoundReset", function()
+    D3bot.ZS.BotStats = {}
+    D3bot.ZS.DeathLog = {}
+    D3bot.ZS.SoloPlayers = {}
+
+    -- Скидання кешу класів для уникнення помилок при зміні хвиль
+    CachedWave = -1
+    CachedAvailableClasses = {}
+    
+    DebugPrint("ROUND RESTART | All bot memory, streaks, and caches have been purged.")
+end)
+
+-- Резервний хук для специфіки Zombie Survival (у разі софт-рестарту без Cleanup)
+hook.Add("PreRestartRound", "D3bot_SmartSpawn_ZSRoundReset", function()
+    D3bot.ZS.BotStats = {}
+    D3bot.ZS.DeathLog = {}
+    D3bot.ZS.SoloPlayers = {}
+    CachedWave = -1
+    CachedAvailableClasses = {}
 end)
