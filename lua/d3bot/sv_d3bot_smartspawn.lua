@@ -9,6 +9,8 @@ D3bot.ZS.DeathLog = D3bot.ZS.DeathLog or {}
 
 -- Прапорець для увімкнення/вимкнення дебагу у консолі
 D3bot.ZS.DebugSmartSpawn = true
+D3bot.ZS.DebugSoloScanner = false
+
 
 -- Локальна функція для виводу логів
 local function DebugPrint(...)
@@ -24,7 +26,80 @@ local function DebugPrint(...)
     MsgC(Color(255, 150, 0), "[D3bot SmartSpawn] ", Color(255, 255, 255), outputString, "\n")
 end
 
--- Пріоритети для пробиття барикад (Танки)
+-- ====================================================================
+-- ГЛОБАЛЬНИЙ СКАНЕР СОЛО-ГРАВЦІВ (Асинхронний кеш)
+-- ====================================================================
+D3bot.ZS.SoloPlayers = {}
+
+timer.Create("D3bot_SmartSpawn_SoloScanner", 1.0, 0, function()
+    local startTime = SysTime() -- Початок відліку часу
+    local loopIterations = 0    -- Загальна кількість ітерацій циклу
+    local distChecks = 0        -- Кількість виконаних математичних розрахунків дистанції
+
+    local humans = team.GetPlayers(TEAM_HUMAN)
+    local count = #humans
+    local grouped = {}
+    
+    -- Оптимізований попарний перебір
+    for i = 1, count do
+        loopIterations = loopIterations + 1
+        local ply1 = humans[i]
+        
+        if not grouped[ply1] and IsValid(ply1) and ply1:Alive() then
+            local pos1 = ply1:GetPos()
+            
+            for j = i + 1, count do
+                loopIterations = loopIterations + 1
+                local ply2 = humans[j]
+                
+                if not grouped[ply2] and IsValid(ply2) and ply2:Alive() then
+                    distChecks = distChecks + 1
+                    
+                    if pos1:DistToSqr(ply2:GetPos()) < 640000 then 
+                        grouped[ply1] = true
+                        grouped[ply2] = true
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Формування актуального масиву цілей
+    local newSoloList = {}
+    for i = 1, count do
+        local ply = humans[i]
+        if IsValid(ply) and ply:Alive() and not grouped[ply] then
+            table.insert(newSoloList, ply)
+        end
+    end
+    
+    D3bot.ZS.SoloPlayers = newSoloList
+    
+    -- Розрахунок часу виконання у мілісекундах
+    local executionTimeMs = (SysTime() - startTime) * 1000
+    
+    if D3bot.ZS.DebugSoloScanner then
+        DebugPrint("Scanner Stats | Humans: ", count, 
+               " | Iterations: ", loopIterations, 
+               " | DistChecks: ", distChecks, 
+               " | Solos Found: ", #newSoloList,
+               " | Time: ", math.Round(executionTimeMs, 4), "ms")
+    end
+end)
+
+-- Отримання цілі з глобального кешу за O(1)
+local function FindGlobalSoloTarget()
+    local soloCount = #D3bot.ZS.SoloPlayers
+    if soloCount > 0 then
+        return D3bot.ZS.SoloPlayers[math.random(soloCount)]
+    end
+    
+    return nil
+end
+
+-- ====================================================================
+-- ТАБЛИЦІ ПРІОРИТЕТІВ КЛАСІВ
+-- ====================================================================
 D3bot.ZS.BarricadePriority = {
     ["Zombie Gore Blaster"] = 100,
     ["Noxious Ghoul"] = 85,
@@ -52,7 +127,6 @@ D3bot.ZS.BarricadePriority = {
     ["Barbed Headcrab"] = 0
 }
 
--- Пріоритети для швидкого переслідування
 D3bot.ZS.FastAttackerPriority = {
     ["Fast Zombie"] = 100,
     ["Lacerator"] = 98,
@@ -81,17 +155,14 @@ D3bot.ZS.BulletResistPriority = {
     ["Skeletal Shambler"] = 100,
     ["Skeletal Walker"] = 90,
     ["Skeletal Lurker"] = 50
-    -- Додати інші варіації (наприклад, половинки)
 }
 
 D3bot.ZS.MeleeResistPriority = {
     ["Shadow Walker"] = 100,
     ["Frigid Revenant"] = 90,
     ["Shadow Lurker"] = 50
-    -- Додати інші варіації
 }
 
--- Пріоритети для подолання вертикальних перешкод (Стрибуни/Лази)
 D3bot.ZS.LeaperPriority = {
     ["Fast Zombie"] = 100,
     ["Lacerator"] = 90,
@@ -101,29 +172,21 @@ D3bot.ZS.LeaperPriority = {
     ["Fresh Dead"] = 60
 }
 
--- Локальна функція для точної ідентифікації барикад ZS
 local function IsValidBarricade(ent)
     if not IsValid(ent) then return false end
     
     local entClass = ent:GetClass()
     
     if entClass == "prop_physics" or entClass == "prop_physics_multiplayer" then
-        -- Використання підтвердженого методу IsNailed
-        if ent.IsNailed and ent:IsNailed() then
-            return true
-        end
+        if ent.IsNailed and ent:IsNailed() then return true end
         
-        -- Перевірка наявності власника-гравця (розгорнуті пропи оборони)
         local owner = ent:GetOwner()
-        if IsValid(owner) and owner:IsPlayer() then 
-            return true 
-        end
+        if IsValid(owner) and owner:IsPlayer() then return true end
     end
     
     return false
 end
 
--- Хук для відстеження початку переслідування
 function D3bot.ZS.OnTargetAcquired(bot, target)
     local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
     stats.ChaseStartTime = CurTime()
@@ -133,6 +196,9 @@ function D3bot.ZS.OnTargetAcquired(bot, target)
     DebugPrint("Bot ", bot:EntIndex(), " started chasing ", target:GetName())
 end
 
+-- ====================================================================
+-- АНАЛІЗАТОР КОНТЕКСТУ СПАВНУ
+-- ====================================================================
 function D3bot.ZS.CalculateSpawnContext(bot)
     local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
     local fastScore = 1.0
@@ -152,15 +218,13 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     -- 2. Велика дистанція смерті
     if stats.DeathDistance and stats.DeathDistance > 800 then
         fastScore = fastScore + 0.5
-        
         DebugPrint("I was killed from a long distance fast+0.5")
     end
     
-    -- 8. Дельта висоти
+    -- 3. Дельта висоти
     if stats.ZDiscrepancy and stats.ZDiscrepancy > 150 then
         leaperScore = 1.0 + (stats.ZDiscrepancy / 100) 
         tankScore = tankScore * 0.2
-        
         DebugPrint("DeltaZ > 150 tank score * 0.2 leaper + 1")
     end
     
@@ -178,36 +242,38 @@ function D3bot.ZS.CalculateSpawnContext(bot)
 
     if humansNearby >= 1 and propsNearby >= 2 then
         tankScore = tankScore + 1.0
-        
         DebugPrint("Humans around props are nailed i found barricades tank+1")
     elseif humansNearby == 0 then
         fastScore = fastScore + 0.6
-        
         DebugPrint("Humans around not found no barricades fast + 0.6")
     end
 
-    -- 3. Активація Вендети (Пріоритезація швидкості для перехоплення соло-гравця)
-    if IsValid(stats.VendettaTarget) and stats.VendettaTarget:IsPlayer() and stats.VendettaTarget:Alive() then
-        fastScore = fastScore + 1.5 -- Значний буст для швидких зомбі
-        tankScore = tankScore * 0.5 -- Зменшення ймовірності повільних танків
-        
-        DebugPrint("Vendetta context applied. Fast+, Tank-")
+    -- 6. Глобальне полювання на соло-гравців (75% ймовірність ініціалізації)
+    stats.HuntTarget = nil
+    if math.random() <= 0.75 then
+        local huntTarget = FindGlobalSoloTarget()
+        if IsValid(huntTarget) then
+            fastScore = fastScore + 5.0
+            leaperScore = leaperScore + 2.0
+            tankScore = tankScore * 0.1
+            
+            stats.HuntTarget = huntTarget
+            DebugPrint("GLOBAL HUNT | Bot ", bot:EntIndex(), " selected isolated target: ", huntTarget:GetName(), ". Fast+++ Tank---")
+        end
     end
 
     -- 7. Виявлення зони знищення (Killzone Density)
     local recentDeathsInArea = 0
     local currentTime = CurTime()
-    local deathLogTimeWindow = 20 -- Час зберігання запису в секундах
-    local deathLogRadiusSqr = 40000 -- Радіус 200 юнітів у квадраті (200 * 200)
+    local deathLogTimeWindow = 20
+    local deathLogRadiusSqr = 40000 
     
     for i = #D3bot.ZS.DeathLog, 1, -1 do
         local deathRecord = D3bot.ZS.DeathLog[i]
         
         if currentTime - deathRecord.time > deathLogTimeWindow then
-            -- Видалення застарілих даних
             table.remove(D3bot.ZS.DeathLog, i)
         else
-            -- Перевірка щільності смертей
             if deathRecord.pos:DistToSqr(lastPos) <= deathLogRadiusSqr then
                 recentDeathsInArea = recentDeathsInArea + 1
             end
@@ -216,30 +282,25 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     
     if recentDeathsInArea >= 3 then
         tankScore = tankScore + (recentDeathsInArea * 0.5)
-        fastScore = fastScore * 0.3 -- Штраф: швидкі класи миттєво гинуть у Killzone
-        
+        fastScore = fastScore * 0.3 
         DebugPrint("Killzone detected. Deaths in area: ", recentDeathsInArea, " | tank+ fast-")
     end
     
-    -- 6. Активація резистів
+    -- 8. Активація резистів
     if stats.KilledByMeleeCount and stats.KilledByMeleeCount >= 2 then
         meleeResScore = 1.0 + ((stats.KilledByMeleeCount - 2) * 1.5)
-
         DebugPrint("Humans killed me from melee over 2 times meleeres+")
     end
     
     if stats.KilledByBulletCount and stats.KilledByBulletCount >= 3 then
         bulletResScore = 1.0 + ((stats.KilledByBulletCount - 3) * 0.8)
-        
         DebugPrint("Humans killed me from bullet over 3 times bulletres+")
     end
 
     -- 9. Швидка смерть після встановлення зорового контакту (Burst damage)
-    -- Якщо бот перебував у зоні видимості менше 3 секунд перед смертю
     if stats.LoSDuration and stats.LoSDuration < 3.0 then
         tankScore = tankScore + 0.8
-        fastScore = fastScore * 0.4 -- Критичний штраф для швидких класів
-        
+        fastScore = fastScore * 0.4 
         DebugPrint("Instant death in LoS (", math.Round(stats.LoSDuration, 2), "s). tank+ fast-")
     end
     
@@ -247,7 +308,9 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     return fastScore, tankScore, meleeResScore, bulletResScore, leaperScore
 end
 
--- Глобальний кеш для класів
+-- ====================================================================
+-- ВИБІР КЛАСУ ТА КЕШУВАННЯ
+-- ====================================================================
 local CachedWave = -1
 local CachedAvailableClasses = {}
 
@@ -283,9 +346,11 @@ function D3bot.ZS.GetSmartClassIndex(bot)
     
     local combinedPool = {}
     local totalDynamicWeight = 0
+    local baseFallbackWeight = 5.0 -- Константа базової ймовірності
     
     for _, entry in ipairs(CachedAvailableClasses) do
-        local dynamicPriority = (entry.fastPri * fastScore) + 
+        local dynamicPriority = baseFallbackWeight +
+                                (entry.fastPri * fastScore) + 
                                 (entry.tankPri * tankScore) + 
                                 (entry.meleeResPri * meleeResScore) + 
                                 (entry.bulletResPri * bulletResScore) +
@@ -316,24 +381,21 @@ function D3bot.ZS.GetSmartClassIndex(bot)
     return combinedPool[1].index
 end
 
--- Хук смерті бота для збору аналітики (Переведено на DoPlayerDeath для пріоритезації)
+-- ====================================================================
+-- ХУКИ ТЕЛЕМЕТРІЇ ТА ЖИТТЄВОГО ЦИКЛУ
+-- ====================================================================
+
+-- 1. Реєстрація смерті та збір даних
 hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, attacker, dmginfo)
     if not victim:IsBot() then return end 
 
-    -- Витягуємо інфліктора з об'єкта пошкоджень
     local inflictor = dmginfo:GetInflictor()
-
     local stats = D3bot.ZS.BotStats[victim:EntIndex()] or {}
     local victimPos = victim:GetPos()
     stats.LastDeathPos = victimPos
     
-    -- Запис смерті в глобальну теплову карту (Killzone Density)
-    table.insert(D3bot.ZS.DeathLog, {
-        pos = victimPos,
-        time = CurTime()
-    })
+    table.insert(D3bot.ZS.DeathLog, { pos = victimPos, time = CurTime() })
     
-    -- Обчислення тривалості переслідування
     if stats.ChaseStartTime then
         stats.ChaseDuration = CurTime() - stats.ChaseStartTime
         stats.ChaseStartTime = nil 
@@ -341,7 +403,6 @@ hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, at
         stats.ChaseDuration = 0
     end
     
-    -- Обчислення тривалості перебування під вогнем (Burst damage)
     if stats.LoSStartTime then
         stats.LoSDuration = CurTime() - stats.LoSStartTime
         stats.LoSStartTime = nil
@@ -349,40 +410,21 @@ hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, at
         stats.LoSDuration = nil
     end
     
-    -- Просторова аналітика та Вендета
+    -- Виправлена помилка визначення attackerPos
     if IsValid(attacker) and attacker:IsPlayer() and attacker ~= victim and attacker:Team() == TEAM_HUMAN then
         local attackerPos = attacker:GetPos()
         stats.DeathDistance = victimPos:Distance(attackerPos)
         stats.ZDiscrepancy = attackerPos.z - victimPos.z
-        
-        -- Аналіз ізоляції атакуючого (Vendetta)
-        local alliesNearby = 0
-        for _, ent in ipairs(ents.FindInSphere(attackerPos, 600)) do
-            if ent:IsPlayer() and ent:Team() == TEAM_HUMAN and ent:Alive() and ent ~= attacker then
-                alliesNearby = alliesNearby + 1
-                break
-            end
-        end
-        
-        if alliesNearby == 0 then
-            stats.VendettaTarget = attacker
-            DebugPrint("VENDETTA SET | Bot ", victim:EntIndex(), " marked solo player ", attacker:GetName())
-        else
-            stats.VendettaTarget = nil
-        end
     else
         stats.DeathDistance = 0
         stats.ZDiscrepancy = 0
-        stats.VendettaTarget = nil
     end
     
-    -- Коригування інфліктора
     local weapon = inflictor
     if IsValid(attacker) and attacker:IsPlayer() and inflictor == attacker then
         weapon = attacker:GetActiveWeapon()
     end
     
-    -- Розширений аналіз зброї (Кулі / Ближній бій)
     if IsValid(weapon) and weapon:IsWeapon() then
         local weaponClass = weapon:GetClass()
         local isMelee = weapon.IsMelee or string.find(weaponClass, "melee") or weaponClass == "weapon_crowbar"
@@ -395,11 +437,17 @@ hook.Add("DoPlayerDeath", "D3bot_SmartSpawn_DeathAnalytics", function(victim, at
             stats.KilledByMeleeCount = 0 
         end
     end
-    
+
+    DebugPrint("DEATH RECORDED | Bot: ", victim:EntIndex(), 
+               " | Dist: ", math.Round(stats.DeathDistance, 1), 
+               " | Z-Delta: ", math.Round(stats.ZDiscrepancy, 1), 
+               " | MeleeStreak: ", stats.KilledByMeleeCount or 0, 
+               " | BulletStreak: ", stats.KilledByBulletCount or 0)
+
     D3bot.ZS.BotStats[victim:EntIndex()] = stats
 end)
 
--- Глобальний монітор зміни цілей та видимості
+-- 2. Глобальний монітор телеметрії (тільки відстеження видимості)
 local nextThink = 0
 hook.Add("Think", "D3bot_SmartSpawn_TargetTracker", function()
     if CurTime() < nextThink then return end
@@ -410,52 +458,14 @@ hook.Add("Think", "D3bot_SmartSpawn_TargetTracker", function()
             local mem = bot.D3bot_Mem
             local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
             
-            -- ==========================================================
-            -- СИСТЕМА ВЕНДЕТИ (ПРИМУСОВЕ ТАРГЕТУВАННЯ)
-            -- ==========================================================
-            local vendetta = stats.VendettaTarget
-            if IsValid(vendetta) and vendetta:IsPlayer() and vendetta:Alive() and vendetta:Team() == TEAM_HUMAN then
-                -- Динамічна перевірка: чи залишається ціль ізольованою
-                local isStillSolo = true
-                for _, ent in ipairs(ents.FindInSphere(vendetta:GetPos(), 600)) do
-                    if ent:IsPlayer() and ent:Team() == TEAM_HUMAN and ent:Alive() and ent ~= vendetta then
-                        isStillSolo = false
-                        break
-                    end
-                end
-
-                if isStillSolo then
-                    -- Якщо поточна ціль бота не збігається з ціллю Вендети, примусово встановлюємо її
-                    -- Це блокує виконання HANDLER.RerollTarget у внутрішніх файлах D3bot
-                    if mem.TgtOrNil ~= vendetta then
-                        bot:D3bot_SetTgtOrNil(vendetta, false, nil)
-                        DebugPrint("VENDETTA ACTIVE | Bot ", bot:EntIndex(), " enforcing target: ", vendetta:GetName())
-                    end
-                else
-                    -- Гравець більше не соло (дістався союзників), скидання Вендети
-                    stats.VendettaTarget = nil
-                    D3bot.ZS.BotStats[bot:EntIndex()] = stats
-                    DebugPrint("VENDETTA DROPPED | Target ", vendetta:GetName(), " grouped up. Bot ", bot:EntIndex(), " returns to normal AI.")
-                end
-            elseif vendetta ~= nil then
-                -- Очищення невалідної цілі (мертва/вийшла з сервера)
-                stats.VendettaTarget = nil
-                D3bot.ZS.BotStats[bot:EntIndex()] = stats
-            end
-
-            -- ==========================================================
-            -- ТЕЛЕМЕТРІЯ ПЕРЕСЛІДУВАННЯ ТА ВИДИМОСТІ
-            -- ==========================================================
             local currentTarget = mem.TgtOrNil
             local previousTarget = stats.CurrentTarget
             
             if IsValid(currentTarget) and currentTarget:IsPlayer() and currentTarget:Alive() then
-                -- Реєстрація нової цілі для таймера переслідування
                 if previousTarget ~= currentTarget then
                     D3bot.ZS.OnTargetAcquired(bot, currentTarget)
                 end
                 
-                -- Реєстрація прямої видимості (Line of Sight)
                 if bot:Visible(currentTarget) then
                     if not stats.LoSStartTime then
                         stats.LoSStartTime = CurTime()
@@ -468,7 +478,6 @@ hook.Add("Think", "D3bot_SmartSpawn_TargetTracker", function()
                     end
                 end
             else
-                -- Втрата цілі, зупинка таймерів
                 if previousTarget ~= nil then
                     stats.CurrentTarget = nil
                     stats.LoSStartTime = nil
@@ -477,4 +486,25 @@ hook.Add("Think", "D3bot_SmartSpawn_TargetTracker", function()
             end
         end
     end
+end)
+
+-- 3. Виконання глобального полювання після респауну
+hook.Add("PlayerSpawn", "D3bot_SmartSpawn_InitialTarget", function(bot)
+    if not bot:IsBot() then return end
+    
+    timer.Simple(0.1, function()
+        if not IsValid(bot) then return end
+        
+        local stats = D3bot.ZS.BotStats[bot:EntIndex()]
+        if not stats then return end
+        
+        local hunt = stats.HuntTarget
+        if IsValid(hunt) and hunt:Alive() and hunt:Team() == TEAM_HUMAN and bot.D3bot_Mem then
+            bot:D3bot_SetTgtOrNil(hunt, false, nil)
+            DebugPrint("HUNT EXECUTED | Bot ", bot:EntIndex(), " deployed against ", hunt:GetName())
+        end
+        
+        stats.HuntTarget = nil
+        D3bot.ZS.BotStats[bot:EntIndex()] = stats
+    end)
 end)
