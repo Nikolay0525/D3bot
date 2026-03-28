@@ -8,7 +8,7 @@ D3bot.ZS.BotStats = D3bot.ZS.BotStats or {}
 D3bot.ZS.DeathLog = D3bot.ZS.DeathLog or {}
 
 -- Прапорець для увімкнення/вимкнення дебагу у консолі
-D3bot.ZS.DebugSmartSpawn = true
+D3bot.ZS.DebugSmartSpawn = false
 D3bot.ZS.DebugSoloScanner = false
 
 
