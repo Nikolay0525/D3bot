@@ -8,7 +8,7 @@ D3bot.ZS.BotStats = D3bot.ZS.BotStats or {}
 D3bot.ZS.DeathLog = D3bot.ZS.DeathLog or {}
 
 -- Прапорець для увімкнення/вимкнення дебагу у консолі
-D3bot.ZS.DebugSmartSpawn = false
+D3bot.ZS.DebugSmartSpawn = false 
 D3bot.ZS.DebugSoloScanner = false
 
 
@@ -27,63 +27,92 @@ local function DebugPrint(...)
 end
 
 -- ====================================================================
--- ГЛОБАЛЬНИЙ СКАНЕР СОЛО-ГРАВЦІВ (Асинхронний кеш)
+-- ГЛОБАЛЬНИЙ СКАНЕР ОТОЧЕННЯ (Метод Time-Slicing)
 -- ====================================================================
 D3bot.ZS.SoloPlayers = {}
+D3bot.ZS.NestData = { count = 0, far = false, repair = false }
 
-timer.Create("D3bot_SmartSpawn_SoloScanner", 1.0, 0, function()
-    local startTime = SysTime() -- Початок відліку часу
-    local loopIterations = 0    -- Загальна кількість ітерацій циклу
-    local distChecks = 0        -- Кількість виконаних математичних розрахунків дистанції
+-- Тригер фази (0 - Люди, 1 - Гнізда)
+local scanPhase = 0
 
+timer.Create("D3bot_SmartSpawn_GlobalScanner", 1.0, 0, function()
     local humans = team.GetPlayers(TEAM_HUMAN)
     local count = #humans
-    local grouped = {}
     
-    -- Оптимізований попарний перебір
-    for i = 1, count do
-        loopIterations = loopIterations + 1
-        local ply1 = humans[i]
-        
-        if not grouped[ply1] and IsValid(ply1) and ply1:Alive() then
-            local pos1 = ply1:GetPos()
-            
-            for j = i + 1, count do
-                loopIterations = loopIterations + 1
-                local ply2 = humans[j]
-                
-                if not grouped[ply2] and IsValid(ply2) and ply2:Alive() then
-                    distChecks = distChecks + 1
-                    
-                    if pos1:DistToSqr(ply2:GetPos()) < 640000 then 
-                        grouped[ply1] = true
-                        grouped[ply2] = true
+    -- Перемикання фази: 0 -> 1 -> 0 -> 1
+    scanPhase = (scanPhase + 1) % 2
+
+    if scanPhase == 0 then
+        -- ФАЗА 0: Сканування просторової ізоляції гравців (O(N^2/2))
+        local grouped = {}
+        for i = 1, count do
+            local ply1 = humans[i]
+            if not grouped[ply1] and IsValid(ply1) and ply1:Alive() then
+                local pos1 = ply1:GetPos()
+                for j = i + 1, count do
+                    local ply2 = humans[j]
+                    if not grouped[ply2] and IsValid(ply2) and ply2:Alive() then
+                        -- Перевірка на 800 юнітів
+                        if pos1:DistToSqr(ply2:GetPos()) < 640000 then 
+                            grouped[ply1] = true
+                            grouped[ply2] = true
+                        end
                     end
                 end
             end
         end
-    end
-    
-    -- Формування актуального масиву цілей
-    local newSoloList = {}
-    for i = 1, count do
-        local ply = humans[i]
-        if IsValid(ply) and ply:Alive() and not grouped[ply] then
-            table.insert(newSoloList, ply)
+        
+        local newSoloList = {}
+        for i = 1, count do
+            local ply = humans[i]
+            if IsValid(ply) and ply:Alive() and not grouped[ply] then
+                table.insert(newSoloList, ply)
+            end
         end
-    end
-    
-    D3bot.ZS.SoloPlayers = newSoloList
-    
-    -- Розрахунок часу виконання у мілісекундах
-    local executionTimeMs = (SysTime() - startTime) * 1000
-    
-    if D3bot.ZS.DebugSoloScanner then
-        DebugPrint("Scanner Stats | Humans: ", count, 
-               " | Iterations: ", loopIterations, 
-               " | DistChecks: ", distChecks, 
-               " | Solos Found: ", #newSoloList,
-               " | Time: ", math.Round(executionTimeMs, 4), "ms")
+        D3bot.ZS.SoloPlayers = newSoloList
+
+    else
+        -- ФАЗА 1: Сканування інфраструктури Flesh Creeper (O(N*M))
+        local builtNestsCount = 0
+        local hasFarNests = false
+        
+        -- Пошук усіх об'єктів гнізд на карті
+        local allNests = ents.FindByClass("prop_creepernest")
+        for i = 1, #allNests do
+            local nest = allNests[i]
+            if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
+                builtNestsCount = builtNestsCount + 1
+                
+                if count > 0 then
+                    local closestDistSqr = math.huge
+                    local nestPos = nest:GetPos()
+                    
+                    -- Пошук найближчої людини до конкретного гнізда
+                    for j = 1, count do
+                        local human = humans[j]
+                        if IsValid(human) and human:Alive() then
+                            local distSqr = nestPos:DistToSqr(human:GetPos())
+                            if distSqr < closestDistSqr then
+                                closestDistSqr = distSqr
+                            end
+                        end
+                    end
+                    
+                    -- Перевірка на 900 юнітів
+                    if closestDistSqr >= 810000 then
+                        hasFarNests = true
+                    end
+                end
+            end
+        end
+
+        local needsRepair = false
+        local FC = D3bot.Handlers and D3bot.Handlers.Undead_Fleshcreeper
+        if FC and FC.GetClosestNestNeedingRepair and FC.GetClosestNestNeedingRepair() ~= nil then
+            needsRepair = true
+        end
+
+        D3bot.ZS.NestData = { count = builtNestsCount, far = hasFarNests, repair = needsRepair }
     end
 end)
 
@@ -331,6 +360,28 @@ end
 
 function D3bot.ZS.GetSmartClassIndex(bot)
     D3bot.ZS.UpdateClassCache() 
+
+    local nd = D3bot.ZS.NestData
+    local canCreeper = D3bot.ZS.CanBecomeFleshCreeper and D3bot.ZS.CanBecomeFleshCreeper()
+    
+    if nd and (nd.count < 2 or nd.far or nd.repair) and canCreeper and math.random() <= 0.75 then
+        local creeperIndex
+        for _, zc in pairs(GAMEMODE.ZombieClasses) do
+            if zc.Name == "Flesh Creeper" then
+                creeperIndex = zc.Index
+                break
+            end
+        end
+        
+        if creeperIndex then
+            local stats = D3bot.ZS.BotStats[bot:EntIndex()] or {}
+            stats.HuntTarget = nil -- СКАСУВАННЯ ПОЛЮВАННЯ. Кріпер займається інфраструктурою.
+            D3bot.ZS.BotStats[bot:EntIndex()] = stats
+            
+            DebugPrint("Bot ", bot:EntIndex(), " forced as [Flesh Creeper] (Nests: ", nd.count, "). Hunt logic overridden.")
+            return creeperIndex
+        end
+    end
 
     local fastScore, tankScore, meleeResScore, bulletResScore, leaperScore = D3bot.ZS.CalculateSpawnContext(bot)
     
