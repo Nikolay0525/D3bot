@@ -145,15 +145,8 @@ end
 
 ---Called when the bot dies.
 function HANDLER.OnDeathFunction(bot)
-    -- ОНОВЛЕНО: Замість старої таблиці перенаправляємо логіку смерті на наш новий розумний fallback!
-    if D3bot.Handlers.Undead_Fallback and D3bot.Handlers.Undead_Fallback.OnDeathFunction then
-        D3bot.Handlers.Undead_Fallback.OnDeathFunction(bot)
-    else
-        -- Якщо fallback чомусь недоступний (малоймовірно), просто обираємо випадковий клас
-        local defaultClass = GAMEMODE.ZombieClasses[GAMEMODE.DefaultZombieClass]
-        bot.DeathClass = defaultClass and defaultClass.Index or 1
-        HANDLER.RerollTarget(bot)
-    end
+    bot.DeathClass = D3bot.ZS.GetSmartClassIndex(bot)
+    HANDLER.RerollTarget(bot)
 end
 
 -----------------------------------

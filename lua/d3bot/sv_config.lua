@@ -63,4 +63,4 @@ D3bot.BotUpdateDelay = 1 				-- Delay in seconds on how long it takes for a bot 
 										-- Due to small lag when a bot joins/leaves, having this set to 0 and spawning lots of bots at once will heavily lag for a few seconds.
 										-- Sigilmare EDIT: I tested this with 0 delay and I didn't seem to lag, but that might just be on my end. So don't take my word for it.
 
-D3bot.BotKickReason = "I did my job. :)"
+D3bot.BotKickReason = "Хуйня игра..."

@@ -1,6 +1,7 @@
 
 translate.AddLanguage("en", "English")
 
+LANGUAGE.D3bot_intermissiononly		= "To revive as a human you should write !human while intermission time."
 LANGUAGE.D3bot_redeemwave			= "You can type !human before wave %u to play as survivor."
 LANGUAGE.D3bot_botmapsonly			= "This command is enabled on bot maps only!"
 LANGUAGE.D3bot_toolate				= "It's too late to self-redeem (can only be done before wave %u)."
