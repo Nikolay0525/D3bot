@@ -33,7 +33,7 @@ if engine.ActiveGamemode() == "zombiesurvival" then
 	local nextByPl = {}
 	local tierByPl = {}
 	function ulx.human(pl)
-		if GAMEMODE:GetWaveActive() then
+		if GAMEMODE:GetWaveActive() == true then
 			local response = translate.ClientGet(pl, "D3bot_intermissiononly")
 			pl:ChatPrint(response)
 			pl:PrintMessage(HUD_PRINTCENTER, response)

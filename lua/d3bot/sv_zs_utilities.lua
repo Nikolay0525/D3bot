@@ -630,76 +630,75 @@ function D3bot.ZS.HasAnyNests(bot)
 	return false
 end
 
----Calculate the distance between two positions
----(OPTIMIZED: Replaced A* Pathfinding with direct Euclidean distance to prevent server freezing during mass bot spawns)
+---Calculate the distance between two positions using NavMesh (A* Pathfinding)
 ---@param startPos GVector Starting position
 ---@param endPos GVector Ending position
----@param abilities table|nil Optional abilities table (not used in simplified version)
+---@param abilities table|nil Optional abilities table
 ---@return number|nil distance The distance in units, or nil if no path exists
 function D3bot.ZS.GetPathDistance(startPos, endPos, abilities)
-    -- СТАРУ ЛОГІКУ ЗАКОМЕНТОВАНО ЧЕРЕЗ ФРІЗИ СЕРВЕРА ПРИ МАСОВОМУ СПАВНІ
-    -- (A* pathfinding is too CPU intensive when 10+ bots calculate 25+ routes in one tick)
-    --[[
+    if not startPos or not endPos then return nil end
+    
     local mapNavMesh = D3bot.MapNavMesh
-    if not mapNavMesh then return nil end
+    if not mapNavMesh then 
+        return startPos:Distance(endPos) 
+    end
 
     local startNode = mapNavMesh:GetNearestNodeOrNil(startPos)
     local endNode = mapNavMesh:GetNearestNodeOrNil(endPos)
 
-    if not startNode or not endNode then return nil end
-
-    if startNode == endNode then
-        return startPos:Distance(endPos)
+    -- Якщо вузли не знайдено або це один і той самий вузол
+    if not startNode or not endNode or startNode == endNode then 
+        return startPos:Distance(endPos) 
     end
 
     abilities = abilities or {Walk = true, Jump = 70, Height = 72, Crab = false}
 
+    -- СПРАВЖНІЙ ПРОРАХУНОК ШЛЯХУ (A*)
     local path = D3bot.GetBestMeshPathOrNil(startNode, endNode, nil, nil, abilities)
-    if not path or #path < 2 then return nil end
+    
+    -- Якщо шляху немає (наприклад, люди повністю забарикадувались у кімнаті без дірок)
+    if not path or #path < 2 then 
+        return nil 
+    end
 
-    local totalDist = 0
-    totalDist = totalDist + startPos:Distance(path[1].Pos)
+    -- Рахуємо реальну дистанцію по вузлах (як зомбі буде бігти ногами)
+    local totalDist = startPos:Distance(path[1].Pos)
     for i = 1, #path - 1 do
         totalDist = totalDist + path[i].Pos:Distance(path[i + 1].Pos)
     end
     totalDist = totalDist + path[#path].Pos:Distance(endPos)
 
     return totalDist
-    ]]
-
-    -- НОВА ЛОГІКА: Проста лінійна дистанція (Миттєво)
-    if not startPos or not endPos then return nil end
-    return startPos:Distance(endPos)
 end
 
----Find the spawn point (from a list) with the shortest path to any human
----@param spawnPoints table Array of spawn point entities
----@param humans table Array of human players
----@return GEntity|nil bestSpawn The best spawn point entity
----@return number bestDist The path distance to nearest human (math.huge if none)
-function D3bot.ZS.FindBestSpawnByPathDistance(spawnPoints, humans)
-	local bestSpawn = nil
-	local bestDist = math.huge
+-- ---Find the spawn point (from a list) with the shortest path to any human
+-- ---@param spawnPoints table Array of spawn point entities
+-- ---@param humans table Array of human players
+-- ---@return GEntity|nil bestSpawn The best spawn point entity
+-- ---@return number bestDist The path distance to nearest human (math.huge if none)
+-- function D3bot.ZS.FindBestSpawnByPathDistance(spawnPoints, humans)
+-- 	local bestSpawn = nil
+-- 	local bestDist = math.huge
 
-	for _, spawn in ipairs(spawnPoints) do
-		if IsValid(spawn) then
-			local spawnPos = spawn:GetPos()
+-- 	for _, spawn in ipairs(spawnPoints) do
+-- 		if IsValid(spawn) then
+-- 			local spawnPos = spawn:GetPos()
 
-			-- Find shortest path to any human from this spawn
-			for _, human in ipairs(humans) do
-				if IsValid(human) and human:Alive() then
-					local pathDist = D3bot.ZS.GetPathDistance(spawnPos, human:GetPos())
-					if pathDist and pathDist < bestDist then
-						bestDist = pathDist
-						bestSpawn = spawn
-					end
-				end
-			end
-		end
-	end
+-- 			-- Find shortest path to any human from this spawn
+-- 			for _, human in ipairs(humans) do
+-- 				if IsValid(human) and human:Alive() then
+-- 					local pathDist = D3bot.ZS.GetPathDistance(spawnPos, human:GetPos())
+-- 					if pathDist and pathDist < bestDist then
+-- 						bestDist = pathDist
+-- 						bestSpawn = spawn
+-- 					end
+-- 				end
+-- 			end
+-- 		end
+-- 	end
 
-	return bestSpawn, bestDist
-end
+-- 	return bestSpawn, bestDist
+-- end
 
 ---Get a corrupted (green) sigil entity if any exists.
 ---@return GEntity|nil corruptedSigil The corrupted sigil entity, or nil if none
