@@ -38,75 +38,6 @@ HANDLER.GasComplementaryMinDist = 500 -- Minimum distance from gas for complemen
 HANDLER.GasComplementaryMaxDist = 1200 -- Maximum distance for ideal complementary coverage
 HANDLER.GasComplementaryIdealDist = 800 -- Ideal distance from gas for best scoring
 
--- Barricade damage effectiveness rankings (higher = better at destroying barricades)
--- Used when humans are behind barricades
-HANDLER.BarricadePriority = {
-	-- Best barricade destroyers (have MeleeDamageVsProps or high damage)
-	-- NOTE: No bosses in this list - bosses come from game's forceboss system only
-	["Zombie Gore Blaster"] = 100, -- MeleeDamageVsProps = 28
-	["Noxious Ghoul"] = 85,        -- MeleeDamageVsProps = 24
-	["Lacerator Charging"] = 80,   -- MeleeDamageVsProps = 23
-	["Elder Ghoul"] = 75,          -- MeleeDamageVsProps = 22
-	-- High damage zombies (good general attackers)
-	["Wild Poison Zombie"] = 70,   -- MeleeDamage = 45
-	["Super Zombie"] = 68,         -- MeleeDamage = 45
-	["Poison Zombie"] = 65,        -- MeleeDamage = 40
-	["Wraith"] = 60,               -- MeleeDamage = 43
-	["Zombie"] = 55,               -- MeleeDamage = 35
-	["Skeletal Shambler"] = 52,    -- MeleeDamage = 33
-	["Frigid Revenant"] = 50,      -- MeleeDamage = 32
-	["Vile Bloated Zombie"] = 48,  -- MeleeDamage = 32
-	["Bloated Zombie"] = 45,       -- MeleeDamage = 31
-	["Tormented Wraith"] = 43,     -- Variable damage
-	["Shadow Walker"] = 40,        -- MeleeDamage = 30
-	["Skeletal Walker"] = 38,      -- MeleeDamage = 27
-	["Ghoul"] = 35,                -- MeleeDamage = 23
-	["Classic Zombie"] = 33,       -- MeleeDamage = 25
-	["Fresh Dead"] = 30,           -- MeleeDamage = 20
-	["Agile Dead"] = 28,           -- MeleeDamage = 20
-	["Fast Zombie"] = 20,
-	["Lacerator"] = 18,
-	["Fast Zombie Slingshot"] = 17,
-	["Chem Zombie"] = 15,
-	["Chem Burster"] = 14,
-	["Shadow Lurker"] = 12,
-	["Skeletal Lurker"] = 11,
-	["Eradicator"] = 10         -- Low priority - can rebuild nests if selected
-}
-
--- Fast attacker priority (used when humans are unreachable/running)
--- Prioritizes speed and mobility over raw damage
-HANDLER.FastAttackerPriority = {
-	-- Best fast attackers (high speed, climbing, pouncing)
-	["Fast Zombie"] = 100,         -- Speed 255, can climb and pounce
-	["Lacerator"] = 98,            -- Speed based on Fast Zombie, can climb
-	["Lacerator Charging"] = 95,   -- Fast with charging ability
-	["Fast Zombie Slingshot"] = 93,
-	["Wraith"] = 90,               -- Can phase through, fast
-	["Tormented Wraith"] = 88,     -- Wraith variant
-	-- Medium speed zombies
-	["Frigid Revenant"] = 70,
-	["Fresh Dead"] = 65,
-	["Agile Dead"] = 63,
-	["Ghoul"] = 60,
-	["Elder Ghoul"] = 58,
-	["Noxious Ghoul"] = 55,
-	-- Slower but still mobile
-	["Zombie"] = 40,
-	["Classic Zombie"] = 38,
-	["Shadow Walker"] = 35,
-	["Skeletal Walker"] = 33,
-	["Shadow Lurker"] = 30,
-	["Skeletal Lurker"] = 28,
-	-- Slow zombies (low priority for chasing)
-	["Bloated Zombie"] = 20,
-	["Vile Bloated Zombie"] = 18,
-	["Poison Zombie"] = 15,
-	["Wild Poison Zombie"] = 13,
-	["Super Zombie"] = 10,
-	["Zombie Gore Blaster"] = 8        -- Low priority - can rebuild nests if selected
-}
-
 -- Attack mode constants for post-build
 local ATTACK_MODE_HUMANS = 1
 local ATTACK_MODE_BARRICADES = 2
@@ -183,7 +114,7 @@ local STATE_REPAIRING_NEST = 8
 
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
-local DEBUG_FLESHCREEPER = false       
+local DEBUG_FLESHCREEPER = false         
 local DEBUG_STUCK = false 
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
@@ -424,26 +355,11 @@ local IsNearZombieSpawn = D3bot.ZS.IsNearZombieSpawn
 local IsNearGas = D3bot.ZS.IsNearGas
 local IsNearHumanPath = D3bot.ZS.IsNearHumanPath
 local IsHiddenFromHumans = D3bot.ZS.IsHiddenFromHumans
-local GetZombieSpawnPoints = D3bot.ZS.GetZombieSpawnPoints
 local HasClearFloor = D3bot.ZS.HasClearFloor
 local IsTooCloseToNest = D3bot.ZS.IsTooCloseToNest
 -- Nest functions
-local CountOwnBuiltNests = D3bot.ZS.CountOwnBuiltNests
 local CountAllBuiltNests = D3bot.ZS.CountAllBuiltNests
-local GetAnyBuiltNest = D3bot.ZS.GetAnyBuiltNest
-local GetNestNearCorruptedSigil = D3bot.ZS.GetNestNearCorruptedSigil
--- Barricade functions
-local FindBarricadesNearPosition = D3bot.ZS.FindBarricadesNearPosition
-local FindNearestBarricade = D3bot.ZS.FindNearestBarricade
-local IsPathBlockedByBarricade = D3bot.ZS.IsPathBlockedByBarricade
--- Sigil functions
-local GetCorruptedSigil = D3bot.ZS.GetCorruptedSigil
-local HasUncorruptedSigil = D3bot.ZS.HasUncorruptedSigil
-local AreHumansNearSigil = D3bot.ZS.AreHumansNearSigil
-local AreHumansNearAnyBlueSigil = D3bot.ZS.AreHumansNearAnyBlueSigil
--- Human targeting functions
-local FindHumansNearGreenOrIsolated = D3bot.ZS.FindHumansNearGreenOrIsolated
-local FindHumanNotCoveredByNest = D3bot.ZS.FindHumanNotCoveredByNest
+
 -- Gas-aware nest placement functions
 local GetGasSpawnerPositions = D3bot.ZS.GetGasSpawnerPositions
 local CalculateGasCoverageScore = D3bot.ZS.CalculateGasCoverageScore
@@ -492,6 +408,9 @@ local function IsPositionBlacklisted(bot, pos)
 	mem.BlacklistedBuildPositions = validBlacklist
 	return isBlacklisted
 end
+
+local NEST_TOO_FAR_DISTANCE = 900
+local NEST_TOO_FAR_DISTANCE_SQR = NEST_TOO_FAR_DISTANCE * NEST_TOO_FAR_DISTANCE
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
 ---Priority 1: Near humans by path distance (but hidden from them)
@@ -553,7 +472,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 		-- Check not too close to humans (match game: GAMEMODE.CreeperNestDistBuild = 420)
 		local minHumanDist = 420
-		local maxHumanDist = 900
+		-- local maxHumanDist = 1500 -------------------------------------------------------------------------- Kakogo huya 900?? 1500 No ramki!
 		local closestDist = math.huge
 
 		for _, humanData in ipairs(humans) do
@@ -566,9 +485,9 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			end
 		end
 
-		if closestDist > maxHumanDist then
-			return nil -- Занадто далеко (запобігає циклічному руйнуванню)
-		end
+		-- if closestDist > maxHumanDist then
+		-- 	return nil -- Занадто далеко (запобігає циклічному руйнуванню)
+		-- end
 
 		-- Check if position is blacklisted (nest was shot there before)
 		if IsPositionBlacklisted(bot, testPos) then return nil end
@@ -627,11 +546,31 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			end
 		end
 
+		local barricadePathDist = nil
+
+		if barricadePos then
+			-- РЕЖИМ ОБЛОГИ: Головна ціль — барикада
+			barricadePathDist = D3bot.ZS.GetPathDistance(testPos, barricadePos)
+			
+			-- Відсікаємо, якщо до БАРИКАДИ не дійти або занадто далеко
+			if barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE then
+				return -1000, bestHumanPathDist
+			end
+			-- ЗВЕРНИ УВАГУ: Ми тут ІГНОРУЄМО bestHumanPathDist! 
+			-- Навіть якщо до людей math.huge (база повністю закрита),
+			-- Кріпер все одно поставить гніздо біля барикади, щоб її зламати.
+		else
+			-- НОРМАЛЬНИЙ РЕЖИМ: Головна ціль — люди
+			-- Відсікаємо, якщо до ЛЮДЕЙ не дійти або занадто далеко
+			if bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
+				return -1000, bestHumanPathDist
+			end
+		end
+
 		-- BARRICADE PRIORITY MODE: When blocked by barricade, prioritize positions near it
 		-- so spawned zombies can attack the barricade
 		if barricadePos then
 			local barricadeDist = testPos:Distance(barricadePos)
-			local barricadePathDist = GetPathDistance(testPos, barricadePos)
 
 			-- Ideal range: 200-500 units from barricade (close enough for spawned zombies to attack)
 			if barricadeDist >= 200 and barricadeDist <= 500 then
@@ -651,7 +590,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 			-- Human proximity is secondary when in barricade mode
 			if bestHumanPathDist < math.huge then
-				if bestHumanPathDist >= 400 and bestHumanPathDist <= 1500 then
+				if bestHumanPathDist >= 420 and bestHumanPathDist <= 1500 then --------- чому? 1500 це далеко
 					score = score + 50 -- Bonus for being near humans too
 				end
 			end
@@ -741,7 +680,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {barricadeNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 40 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 80 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -788,7 +727,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {humanNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 100 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -796,10 +735,10 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 					checkedNodes[node] = true
 					local nodePos = node.Pos
 
-					-- Only consider nodes 400+ units away from humans (Euclidean)
+					-- Only consider nodes 420+ units away from humans (Euclidean)
 					local tooClose = false
 					for _, hData in ipairs(humans) do
-						if nodePos:Distance(hData.pos) < 400 then
+						if nodePos:Distance(hData.pos) < 420 then
 							tooClose = true
 							break
 						end
@@ -1065,33 +1004,6 @@ local function GetUnbuiltNest(bot)
     return nil
 end
 
----Gets the leader's nest that is being built (unbuilt nest with min progress).
----@param leader GPlayer The leader bot player
----@param minProgressPercent number? Minimum progress % required (defaults to 5)
----@return GEntity? nest The nest entity if found
----@return GVector? pos The nest position if found
-local function GetLeaderNestInProgress(leader, minProgressPercent)
-	if not IsValid(leader) then return nil, nil end
-	local uid = leader:UniqueID()
-	minProgressPercent = minProgressPercent or 5  -- Default 5%
-
-	for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
-		if IsValid(nest) and nest.OwnerUID == uid then
-			-- Check if nest is being built (not fully built yet)
-			if not nest:GetNestBuilt() then
-				local health = nest:GetNestHealth() or 0
-				local maxHealth = nest:GetNestMaxHealth() or 200
-				local progressPercent = (health / maxHealth) * 100
-
-				if progressPercent >= minProgressPercent then
-					return nest, nest:GetPos()
-				end
-			end
-		end
-	end
-	return nil, nil
-end
-
 -- Distance to consider a nest "near" a corrupted sigil
 HANDLER.NestCorruptedSigilDistance = 1500
 
@@ -1103,9 +1015,6 @@ HANDLER.NestCorruptedSigilDistance = 1500
 
 -- NOTE: GetNestNearCorruptedSigil uses default 1500 distance; to use HANDLER.NestCorruptedSigilDistance,
 -- call it as: GetNestNearCorruptedSigil(sigil, HANDLER.NestCorruptedSigilDistance)
-
--- NOTE: GetAnyNestToDestroy is now GetAnyBuiltNest in D3bot.ZS
-local GetAnyNestToDestroy = GetAnyBuiltNest
 
 -- Nest damage threshold for repair (percentage of max health)
 local NEST_REPAIR_THRESHOLD = 0.95 -- Repair if below 95% health
@@ -1219,9 +1128,6 @@ function HANDLER.GetClosestNestNeedingRepair()
 
     return nil, nil, nil
 end
-
-local NEST_TOO_FAR_DISTANCE = 900
-local NEST_TOO_FAR_DISTANCE_SQR = NEST_TOO_FAR_DISTANCE * NEST_TOO_FAR_DISTANCE
 
 local function GetFurthestInvalidNest()
     local humans = team.GetPlayers(TEAM_HUMAN)
