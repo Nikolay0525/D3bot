@@ -108,21 +108,7 @@ function HANDLER.ThinkFunction(bot)
         bot:D3bot_UpdateAngsOffshoot(HANDLER.AngOffshoot)
     end
 
-    -- ОНОВЛЕНО: Підтримка сучасної навігаційної сітки (NavMesh)
-    local pathCostFunction
-    if D3bot.UsingSourceNav then
-        pathCostFunction = function( cArea, nArea, link )
-            local linkMetaData = link:GetMetaData()
-            local linkPenalty = linkMetaData and linkMetaData.ZombieDeathCost or 0
-            return linkPenalty * ( mem.ConsidersPathLethality and 1 or 0 )
-        end
-    else
-        pathCostFunction = function( node, linkedNode, link )
-            local linkMetadata = D3bot.LinkMetadata[link]
-            local linkPenalty = linkMetadata and linkMetadata.ZombieDeathCost or 0
-            return linkPenalty * (mem.ConsidersPathLethality and 1 or 0)
-        end
-    end
+    local pathCostFunction = D3bot.ZS.GetSharedPathCostFunction(bot)
 
     if mem.nextUpdatePath and mem.nextUpdatePath < CurTime() or not mem.nextUpdatePath then
         mem.nextUpdatePath = CurTime() + 0.9 + math.random() * 0.2

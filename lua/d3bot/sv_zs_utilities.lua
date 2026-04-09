@@ -1541,6 +1541,65 @@ function D3bot.ZS.SelectSmartSpawn(zombieClass, isBoss, targetBehavior)
 	return nil, nil, nil, nil
 end
 
+-- Перевірка: чи вміє бот робити довгі стрибки?
+function D3bot.ZS.CanZombiePounce(bot)
+    local zClass = bot:GetZombieClassTable()
+    if not zClass then return false end
+    
+    local name = zClass.Name
+    
+    -- Хедкраби вміють стрибати
+    if string.find(name, "Headcrab") then return true end
+    
+    -- Швидкі класи (використовуємо твою існуючу таблицю пріоритетів, якщо вона є)
+    if D3bot.ZS.LeaperPriority and D3bot.ZS.LeaperPriority[name] and name ~= "Agile Dead" then return true end
+    
+    -- Жорсткий список на всяк випадок
+    if name == "Fast Zombie" or name == "Lacerator" then return true end
+    
+    return false
+end
+
+-- Перевірка: чи це саме хедкраб? (Для специфічних вузьких отворів/стрибків)
+function D3bot.ZS.CanZombieCrabPounce(bot)
+    local zClass = bot:GetZombieClassTable()
+    if not zClass then return false end
+    return string.find(zClass.Name, "Headcrab") ~= nil
+end
+
+-- ГЕНЕРАТОР ФУНКЦІЇ ВАРТОСТІ ШЛЯХУ ДЛЯ БОТА
+function D3bot.ZS.GetSharedPathCostFunction(bot)
+    local mem = bot.D3bot_Mem
+    local canPounce = D3bot.ZS.CanZombiePounce(bot)
+    local canCrabPounce = D3bot.ZS.CanZombieCrabPounce(bot)
+
+    if D3bot.UsingSourceNav then
+        return function(cArea, nArea, link)
+            local meta = link:GetMetaData() or {}
+            local params = meta.Params or {}
+
+            -- ВІДСІКАННЯ: Якщо лінк для стрибунів, а бот повільний — блокуємо (величезна вартість)
+            if params.Pouncing == "Needed" and not canPounce then return 999999 end
+            if params.CrabPouncing == "Needed" and not canCrabPounce then return 999999 end
+
+            local linkPenalty = meta.ZombieDeathCost or 0
+            return linkPenalty * (mem.ConsidersPathLethality and 1 or 0)
+        end
+    else
+        return function(node, linkedNode, link)
+            local params = link.Params or {}
+
+            -- ВІДСІКАННЯ: Те саме для старої системи нодів D3bot
+            if params.Pouncing == "Needed" and not canPounce then return 999999 end
+            if params.CrabPouncing == "Needed" and not canCrabPounce then return 999999 end
+
+            local linkMetadata = D3bot.LinkMetadata[link]
+            local linkPenalty = linkMetadata and linkMetadata.ZombieDeathCost or 0
+            return linkPenalty * (mem.ConsidersPathLethality and 1 or 0)
+        end
+    end
+end
+
 ---ConCommand to test smart spawn selection
 concommand.Add("d3bot_smartspawn_test", function(ply)
 	if IsValid(ply) and not ply:IsAdmin() then return end
