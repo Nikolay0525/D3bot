@@ -45,6 +45,12 @@ if engine.ActiveGamemode() == "zombiesurvival" then
 			pl:PrintMessage(HUD_PRINTCENTER, response)
 			return
 		end
+		if GAMEMODE:GetWaveActive() == true then
+			local response = translate.ClientGet(pl, "D3bot_intermissiononly")
+			pl:ChatPrint(response)
+			pl:PrintMessage(HUD_PRINTCENTER, response)
+			return
+		end
 		if GAMEMODE:GetWave() > D3bot.SelfRedeemWaveMax then
 			local response = translate.ClientFormat(pl, "D3bot_toolate", D3bot.SelfRedeemWaveMax + 1)
 			pl:ChatPrint(response)

@@ -1541,6 +1541,25 @@ function D3bot.ZS.SelectSmartSpawn(zombieClass, isBoss, targetBehavior)
 	return nil, nil, nil, nil
 end
 
+-- ГЕНЕРАТОР ФУНКЦІЇ ВАРТОСТІ ШЛЯХУ ДЛЯ БОТА
+function D3bot.ZS.GetSharedPathCostFunction(bot)
+    local mem = bot.D3bot_Mem
+
+    if D3bot.UsingSourceNav then
+        return function(cArea, nArea, link)
+            local linkMetaData = link:GetMetaData()
+            local linkPenalty = linkMetaData and linkMetaData.ZombieDeathCost or 0
+            return linkPenalty * (mem.ConsidersPathLethality and 1 or 0)
+        end
+    else
+        return function(node, linkedNode, link)
+            local linkMetadata = D3bot.LinkMetadata[link]
+            local linkPenalty = linkMetadata and linkMetadata.ZombieDeathCost or 0
+            return linkPenalty * (mem.ConsidersPathLethality and 1 or 0)
+        end
+    end
+end
+
 ---ConCommand to test smart spawn selection
 concommand.Add("d3bot_smartspawn_test", function(ply)
 	if IsValid(ply) and not ply:IsAdmin() then return end

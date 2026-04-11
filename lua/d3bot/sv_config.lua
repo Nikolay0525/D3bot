@@ -18,7 +18,7 @@ D3bot.NodeBlockingMap = {
 D3bot.ValveNav = true						-- Enable the use of auto-generated nav-meshes ("SourceNav"). You can create these by using the console command "nav_generate".
 D3bot.ValveNavOverride = false				-- When true: Prefer auto-generated nav-meshes ("SourceNav") over manually created nav-meshes ("D3botNav").
 
-D3bot.NodeDamageEnts = {"prop_*turret", "prop_arsenalcrate", "prop_resupplybox"}
+D3bot.NodeDamageEnts = {"prop_*turret", "prop_arsenalcrate", "prop_resupplybox", "prop_remantler"}
 
 D3bot.LinkDeathCostRaise = 300
 D3bot.BotConsideringDeathCostAntichance = 3
