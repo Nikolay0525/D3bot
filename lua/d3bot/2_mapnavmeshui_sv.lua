@@ -430,7 +430,7 @@ return function(lib)
 				[IN_ATTACK] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:SetParam("Direction", "Forward")
+					item:SetParam("Direction", "Backward")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
