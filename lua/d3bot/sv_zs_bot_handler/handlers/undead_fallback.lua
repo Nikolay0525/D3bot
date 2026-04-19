@@ -552,8 +552,8 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 	-- ====================================================================
     -- РОЗУМНЕ ВИКОРИСТАННЯ ВТОРИННОЇ АТАКИ (Отрута / Сніжки / Ривок)
     -- ====================================================================
-    local zombieName = GAMEMODE.ZombieClasses[bot:GetZombieClass()].Name
-    local secAttack = HANDLER.RandomSecondaryAttack[zombieName]
+    local zombieClassName = GAMEMODE.ZombieClasses[bot:GetZombieClass()].Name
+    local secAttack = HANDLER.RandomSecondaryAttack[zombieClassName]
     
     if secAttack then
         -- 1. Ініціалізація таймера ПРИ СПАВНІ
@@ -564,7 +564,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
         -- ==========================================================
         -- А. УНІКАЛЬНА ЛОГІКА ДЛЯ CHARGER (Ривок / Спринт)
         -- ==========================================================
-        if zombieName == "Charger" then
+        if zombieClassName == "Charger" then
             -- СТАН РИВКУ: Якщо ми вже в ривку - тримаємо ціль і скасовуємо всі ухиляння!
             if mem.Volatile.ChargeUntil and CurTime() < mem.Volatile.ChargeUntil then
                 if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() and mem.TgtOrNil:Alive() then
@@ -628,7 +628,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
         -- ==========================================================
         else
             -- Зчитуємо множник балістики для конкретного зомбі (за замовчуванням 0.15)
-            local ballisticMult = HANDLER.SecondaryBallistics[zombieName] or 0.15
+            local ballisticMult = HANDLER.SecondaryBallistics[zombieClassName] or 0.15
 
             -- СТАН ЗАМАХУ (Wind-up)
             if mem.Volatile.ThrowWindupUntil and CurTime() < mem.Volatile.ThrowWindupUntil then
@@ -671,7 +671,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                                 mem.Volatile.ThrowWindupUntil = CurTime() + 1.2
                                 
                                 if DEBUG_BEHAVIOR then
-                                    print("[D3bot SecAttack] " .. zombieName .. " почав замах! (Балістика: " .. ballisticMult .. ")")
+                                    print("[D3bot SecAttack] " .. zombieClassName .. " почав замах! (Балістика: " .. ballisticMult .. ")")
                                 end
                             end
                         end
@@ -690,7 +690,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 	-- Giga Gore/Shadow Child: PRIORITIZE throwing babies when at barricades
 	-- Max 5 babies per boss, tracked on the bot
-	local zombieClassName = GAMEMODE.ZombieClasses[bot:GetZombieClass()].Name
 	if zombieClassName == "Giga Gore Child" or zombieClassName == "Giga Shadow Child" then
 		-- Initialize baby count tracking
 		bot.D3bot_BabyCount = bot.D3bot_BabyCount or 0
