@@ -57,15 +57,40 @@ return function(lib)
 
 	-- Client side list of edit modes.
 	-- Any edits have to be in sync with the server side list of edit modes.
-	local editModes = {
-		{ Name = "Create Node" },
-		{ Name = "Link Nodes" },
-		{ Name = "Merge/Split/Extend Nodes" },
-		{ Name = "Reposition Node" },
-		{ Name = "Resize Node Area" },
-		{ Name = "Copy Nodes" },
-		{ Name = "Set/Unset Last Parameter" },
-		{ Name = "Delete Item or Area" },
+	local editTabs = {
+		{ Name = "Creation", Modes = {
+			{ Name = "Create Node" },
+			{ Name = "Delete Item or Area" }
+		} },
+		{ Name = "Linking", Modes = {
+			{ Name = "Link Nodes" },
+			{ Name = "Merge/Split/Extend Nodes" },
+			{ Name = "Resize Node Area" }
+		} },
+		{ Name = "Editing", Modes = {
+			{ Name = "Reposition Node" },
+			{ Name = "Copy Nodes" },
+			{ Name = "Set/Unset Last Parameter" }
+		} },
+		{ Name = "Params 1", Modes = {
+			{ Name = "Set Link Pouncing=Needed" },
+			{ Name = "Set Link CrabPouncing=Needed" },
+			{ Name = "Set Node Climbing=Needed" },
+			{ Name = "Set Node See=Disabled" },
+			{ Name = "Set Node AimTo=Straight" },
+			{ Name = "Set Link Direction=Forward" },
+			{ Name = "Set Link Direction=Backward" },
+		} },
+		{ Name = "Params 2", Modes = {
+			{ Name = "Set Node JumpTo=Always" },
+			{ Name = "Set Node DuctTo=Always" },
+			{ Name = "Set Node JumpTo=Close" },
+			{ Name = "Set Node DuctTo=Close" },
+			{ Name = "Set Node See=Disabled" },
+			{ Name = "Set Node AimTo=Straight" },
+			{ Name = "Set Link Direction=Forward" },
+			{ Name = "Set Link Direction=Backward" },
+		} }
 	}
 
 	function lib.SetIsMapNavMeshViewEnabled(bool)
@@ -460,9 +485,19 @@ return function(lib)
 					end
 				end
 
-				local editmodeid = lib.MapNavMeshEditMode
-				for i, mod in ipairs(editModes) do
-					draw.SimpleText(string.format("[%s] %s", i, mod.Name), "HudDefault", 100, ScrH()/2+(i*20), editmodeid == i and lib.Color.Red or lib.Color.White)
+				local currentTabIdx = lib.MapNavMeshEditTab or 1
+				local editmodeid = lib.MapNavMeshEditMode or 1
+
+				for i, tab in ipairs(editTabs) do
+					local isCurrent = (currentTabIdx == i)
+					draw.SimpleText(string.format("[%s] %s", isCurrent and "*" or "", tab.Name), "HudDefault", 50 + (i-1)*135, ScrH()/2 - 30, isCurrent and lib.Color.Green or lib.Color.White)
+				end
+
+				local currentTab = editTabs[currentTabIdx]
+				if currentTab then
+					for i, mod in ipairs(currentTab.Modes) do
+						draw.SimpleText(string.format("[%s] %s", i, mod.Name), "HudDefault", 100, ScrH()/2+(i*20), editmodeid == i and lib.Color.Red or lib.Color.White)
+					end
 				end
 			end)
 		else

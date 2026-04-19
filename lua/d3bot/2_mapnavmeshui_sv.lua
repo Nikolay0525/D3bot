@@ -42,10 +42,9 @@ return function(lib)
 		if not excludeZOrNil and getCursoredDirection(angs.p) == 0 then return "Z" end
 		return getCursoredDirection(angs.y) == 1 and "X" or "Y"
 	end
-	
-	local editModes = {
-		{	Name = "Create Node",
-			FuncByKey = {
+	local editTabs = {
+		{ Name = "Creation", Modes = {
+			{ Name = "Create Node", FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local cursoredPos = getCursoredPosOrNil(pl)
 					if not cursoredPos then return end
@@ -54,8 +53,24 @@ return function(lib)
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end } },
-		{	Name = "Link Nodes",
-			FuncByKey = {
+			{ Name = "Delete Item or Area", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:Remove()
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					for idx, name in ipairs{ "AreaXMin", "AreaXMax", "AreaYMin", "AreaYMax" } do item:SetParam(name, "") end
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end } }
+		} },
+		{ Name = "Linking", Modes = {
+			{ Name = "Link Nodes", FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local selectedNode = getSelectedNodes(pl)[1]
 					if not selectedNode then
@@ -70,8 +85,7 @@ return function(lib)
 						lib.UpdateMapNavMeshUiSubscribers()
 					end
 				end } },
-		{	Name = "Merge/Split/Extend Nodes",
-			FuncByKey = {
+			{ Name = "Merge/Split/Extend Nodes" , FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local selectedNode = getSelectedNodes(pl)[1]
 					if not selectedNode then
@@ -99,8 +113,26 @@ return function(lib)
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end } },
-		{	Name = "Reposition Node",
-			FuncByKey = {
+			{ Name = "Resize Node Area" , FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					clearSelection(pl)
+					trySelectCursoredNode(pl)
+				end,
+				[IN_ATTACK2] = function(pl)
+					local selectedNode = getSelectedNodes(pl)[1]
+					if not selectedNode then return end
+					local cursoredPos = getCursoredPosOrNil(pl)
+					if not cursoredPos then return end
+					local cursoredAxisName = getCursoredAxisName(pl, true)
+					local cursoredPosKey = cursoredAxisName:lower()
+					local cursoredDimension = round(cursoredPos[cursoredPosKey])
+					selectedNode:SetParam("Area" .. cursoredAxisName .. (cursoredDimension < selectedNode.Pos[cursoredPosKey] and "Min" or "Max"), cursoredDimension)
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end } }
+		} },
+		{ Name = "Editing", Modes = {
+			{ Name = "Reposition Node" , FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local selectedNode = getSelectedNodes(pl)[1]
 					if not selectedNode then
@@ -124,26 +156,7 @@ return function(lib)
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end } },
-		{	Name = "Resize Node Area",
-			FuncByKey = {
-				[IN_ATTACK] = function(pl)
-					clearSelection(pl)
-					trySelectCursoredNode(pl)
-				end,
-				[IN_ATTACK2] = function(pl)
-					local selectedNode = getSelectedNodes(pl)[1]
-					if not selectedNode then return end
-					local cursoredPos = getCursoredPosOrNil(pl)
-					if not cursoredPos then return end
-					local cursoredAxisName = getCursoredAxisName(pl, true)
-					local cursoredPosKey = cursoredAxisName:lower()
-					local cursoredDimension = round(cursoredPos[cursoredPosKey])
-					selectedNode:SetParam("Area" .. cursoredAxisName .. (cursoredDimension < selectedNode.Pos[cursoredPosKey] and "Min" or "Max"), cursoredDimension)
-					lib.MapNavMesh:InvalidateCache()
-					lib.UpdateMapNavMeshUiSubscribers()
-				end } },
-		{	Name = "Copy Nodes",
-			FuncByKey = {
+			{ Name = "Copy Nodes" , FuncByKey = {
 				[IN_ATTACK] = trySelectCursoredNode,
 				[IN_ATTACK2] = function(pl)
 					local cursoredPos = getCursoredPosOrNil(pl)
@@ -169,8 +182,7 @@ return function(lib)
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end } },
-		{	Name = "Set/Unset Last Parameter",
-			FuncByKey = {
+			{ Name = "Set/Unset Last Parameter" , FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item or not lib.lastParamKey or not lib.lastParamValue then return end
@@ -185,25 +197,256 @@ return function(lib)
 					item:SetParam(lib.lastParamKey, "")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
-				end } },
-		{	Name = "Delete Item or Area",
-			FuncByKey = {
+				end } }
+		} },
+		{ Name = "Params 1", Modes = {
+			{ Name = "Set Link Pouncing=Needed", FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:Remove()
+					item:SetParam("Pouncing", "Needed")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
 				[IN_ATTACK2] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					for idx, name in ipairs{ "AreaXMin", "AreaXMax", "AreaYMin", "AreaYMax" } do item:SetParam(name, "") end
+					item:SetParam("Pouncing", "")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
-				end } } }
+				end,
+			} },
+			{ Name = "Set Link CrabPouncing=Needed", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("CrabPouncing", "Needed")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("CrabPouncing", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node Climbing=Needed", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Climbing", "Needed")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Climbing", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node See=Disabled", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("See", "Disabled")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("See", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node AimTo=Straight", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("AimTo", "Straight")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("AimTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Link Direction=Forward", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "Forward")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Link Direction=Backward", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "Backward")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} }
+		} },
+		{ Name = "Params 2", Modes = {
+			{ Name = "Set Node JumpTo=Always", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("JumpTo", "Always")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("JumpTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node DuctTo=Always", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("DuctTo", "Always")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("DuctTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node JumpTo=Close", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("JumpTo", "Close")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("JumpTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node DuctTo=Close", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("DuctTo", "Close")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("DuctTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node See=Disabled", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("See", "Disabled")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("See", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Node AimTo=Straight", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("AimTo", "Straight")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("AimTo", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Link Direction=Forward", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "Forward")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} },
+			{ Name = "Set Link Direction=Backward", FuncByKey = {
+				[IN_ATTACK] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "Forward")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+				[IN_ATTACK2] = function(pl)
+					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
+					if not item then return end
+					item:SetParam("Direction", "")
+					lib.MapNavMesh:InvalidateCache()
+					lib.UpdateMapNavMeshUiSubscribers()
+				end,
+			} }
+		} }
+	}
 	
 	local editModeByPl = {}
+	local editTabByPl = {}
 	
 	local subscribers = {}
 	local subscriptionTypeOrNilByPl = {}
@@ -260,8 +503,10 @@ return function(lib)
 		end
 		if formerSubscriptionTypeOrNil == "edit" then clearSelection(pl) end
 		if subscriptionTypeOrNil == "edit" then
+			editTabByPl[pl] = 1
 			editModeByPl[pl] = 1
-			pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = " .. 1)
+			pl:SendLua(lib.GlobalK .. ".MapNavMeshEditTab = 1")
+			pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = 1")
 		end
 	end
 
@@ -295,28 +540,49 @@ return function(lib)
 
 	hook.Add("KeyPress", tostring({}), function(pl, key)
 		if subscriptionTypeOrNilByPl[pl] ~= "edit" then return end
-		if key == IN_RELOAD then
+		if key == IN_USE then
 			if hasSelection(pl) then
 				clearSelection(pl)
 			else
-				editModeByPl[pl] = (editModeByPl[pl] % #editModes) + 1
+				editTabByPl[pl] = (editTabByPl[pl] % #editTabs) + 1
+				editModeByPl[pl] = 1
+				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditTab = " .. editTabByPl[pl])
 				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = " .. editModeByPl[pl])
 			end
 		else
-			local func = editModes[editModeByPl[pl]].FuncByKey[key]
-			if func then func(pl) end
+			local currentTab = editTabs[editTabByPl[pl]]
+			if currentTab and currentTab.Modes[editModeByPl[pl]] then
+				local func = currentTab.Modes[editModeByPl[pl]].FuncByKey[key]
+				if func then func(pl) end
+			end
 		end
 	end)
 
 	hook.Add("PlayerButtonDown", tostring({}), function(pl, key)
 		if subscriptionTypeOrNilByPl[pl] ~= "edit" then return end
-		if key >= KEY_0 and key <= KEY_9 and editModeByPl[pl] ~= key - 1 then
-			if editModes[key - 1] then
-				if hasSelection(pl) then
-					clearSelection(pl)
+
+		if key == KEY_Q then
+			if hasSelection(pl) then
+				clearSelection(pl)
+			else
+				editTabByPl[pl] = editTabByPl[pl] - 1
+				if editTabByPl[pl] < 1 then
+					editTabByPl[pl] = #editTabs
 				end
-				editModeByPl[pl] = key - 1
-				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = " .. key - 1)
+				editModeByPl[pl] = 1
+				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditTab = " .. editTabByPl[pl])
+				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = " .. editModeByPl[pl])
+			end
+			return
+		end
+
+		if key >= KEY_1 and key <= KEY_9 then
+			local currentTab = editTabs[editTabByPl[pl]]
+			local targetMode = key - KEY_0
+			if currentTab and currentTab.Modes[targetMode] then
+				if hasSelection(pl) then clearSelection(pl) end
+				editModeByPl[pl] = targetMode
+				pl:SendLua(lib.GlobalK .. ".MapNavMeshEditMode = " .. targetMode)
 			end
 		end
 	end)
