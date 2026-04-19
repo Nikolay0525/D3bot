@@ -83,9 +83,9 @@ return function(lib)
 		} },
 		{ Name = "Params 2", Modes = {
 			{ Name = "Set Node JumpTo=Always" },
-			{ Name = "Set Node DuctTo=Always" },
+			{ Name = "Set Node DuckTo=Always" },
 			{ Name = "Set Node JumpTo=Close" },
-			{ Name = "Set Node DuctTo=Close" },
+			{ Name = "Set Node DuckTo=Close" },
 			{ Name = "Set Node See=Disabled" },
 			{ Name = "Set Node AimTo=Straight" },
 			{ Name = "Set Link Direction=Forward" },

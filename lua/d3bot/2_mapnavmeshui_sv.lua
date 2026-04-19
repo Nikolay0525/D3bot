@@ -330,18 +330,18 @@ return function(lib)
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
 			} },
-			{ Name = "Set Node DuctTo=Always", FuncByKey = {
+			{ Name = "Set Node DuckTo=Always", FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:SetParam("DuctTo", "Always")
+					item:SetParam("DuckTo", "Always")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
 				[IN_ATTACK2] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:SetParam("DuctTo", "")
+					item:SetParam("DuckTo", "")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
@@ -362,18 +362,18 @@ return function(lib)
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
 			} },
-			{ Name = "Set Node DuctTo=Close", FuncByKey = {
+			{ Name = "Set Node DuckTo=Close", FuncByKey = {
 				[IN_ATTACK] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:SetParam("DuctTo", "Close")
+					item:SetParam("DuckTo", "Close")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
 				[IN_ATTACK2] = function(pl)
 					local item = lib.MapNavMesh:GetCursoredItemOrNil(pl)
 					if not item then return end
-					item:SetParam("DuctTo", "")
+					item:SetParam("DuckTo", "")
 					lib.MapNavMesh:InvalidateCache()
 					lib.UpdateMapNavMeshUiSubscribers()
 				end,
