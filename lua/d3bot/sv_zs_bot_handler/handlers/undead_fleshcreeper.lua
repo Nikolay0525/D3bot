@@ -40,6 +40,10 @@ HANDLER.CreeperUseSquareDistance = false
 
 HANDLER.AllowEuclideanFallback = false
 
+-- @USE EUCLIDIAN DISTANCE IN NEST DISTANCE FUNCS INSTEAD OF PATHFINDING FOR NO SIEGETARGET SITUATION?
+
+HANDLER.UseEuclidianWhenNoSiegeTarget = true
+
 -- Gas-aware nest placement (coroutine-based strategic positioning)
 HANDLER.GasAwarePlacement = true -- Enable gas-aware nest placement scoring
 HANDLER.GasComplementaryMinDist = 500 -- Minimum distance from gas for complementary coverage
@@ -1069,7 +1073,7 @@ local function GetNestClosestToHumans()
                 for _, human in ipairs(humans) do
                     if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
                         local dist
-                        if HANDLER.CreeperUseSquareDistance then
+                        if HANDLER.CreeperUseSquareDistance or HANDLER.UseEuclidianWhenNoSiegeTarget then
                             dist = nestPos:Distance(human:GetPos())
                         else
                             dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
@@ -1152,7 +1156,7 @@ function HANDLER.GetClosestNestNeedingRepair()
                 for _, human in ipairs(humans) do
                     if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
                         local dist
-                        if HANDLER.CreeperUseSquareDistance then
+                        if HANDLER.CreeperUseSquareDistance or HANDLER.UseEuclidianWhenNoSiegeTarget then
                             dist = nestPos:Distance(human:GetPos())
                         else
                             dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
@@ -1210,7 +1214,7 @@ local function GetFurthestInvalidNest()
                 for _, human in ipairs(humans) do
                     if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
                         local dist
-                        if HANDLER.CreeperUseSquareDistance then
+                        if HANDLER.CreeperUseSquareDistance or HANDLER.UseEuclidianWhenNoSiegeTarget then
                             dist = nestPos:Distance(human:GetPos())
                         else
                             dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
