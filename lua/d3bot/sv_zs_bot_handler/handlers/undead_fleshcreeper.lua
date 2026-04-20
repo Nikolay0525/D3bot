@@ -2531,7 +2531,6 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
 		if mem.Volatile.BuildPosition then
 			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
 		end
-		BlacklistPosition(bot, bot:GetPos(), "took_damage_pos")
 
 		-- Жорстко перериваємо процеси
 		mem.Volatile.InterruptFlag = true
