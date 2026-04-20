@@ -336,10 +336,24 @@ if SERVER then
 		timer.Remove(FORCEBOSS_TIMER_ID)
 	end
 
+	local function HasRealZombiePlayer()
+		for _, ply in ipairs(team.GetPlayers(TEAM_UNDEAD)) do
+			if IsValid(ply) and not ply:IsBot() then
+				print("REAL")
+				return true 
+			end
+		end
+		
+		return false
+	end
+
 	local function StartForceBossTimer()
 		StopForceBossTimer()
 
+		if HasRealZombiePlayer() == true then return end
+		
 		timer.Create(FORCEBOSS_TIMER_ID, 0.1, 0, function()
+			
 			if engine.ActiveGamemode() ~= "zombiesurvival" or not GAMEMODE then
 				return StopForceBossTimer()
 			end
