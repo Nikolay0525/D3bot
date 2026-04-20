@@ -42,7 +42,7 @@ HANDLER.AllowEuclideanFallback = false
 
 -- @USE EUCLIDIAN DISTANCE IN NEST DISTANCE FUNCS INSTEAD OF PATHFINDING FOR NO SIEGETARGET SITUATION?
 
-HANDLER.UseEuclidianWhenNoSiegeTarget = true
+HANDLER.UseEuclidianWhenNoSiegeTarget = true  
 
 -- Gas-aware nest placement (coroutine-based strategic positioning)
 HANDLER.GasAwarePlacement = true -- Enable gas-aware nest placement scoring
@@ -712,7 +712,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {barricadeNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 80 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 40 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -759,7 +759,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {humanNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 100 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -1005,8 +1005,14 @@ local function GetPrioritySiegeBarricade()
             
             for _, human in ipairs(humans) do
                 if IsValidHumanTarget(human) then
+					local dist
                     -- Use PathDistance for tactical accuracy, fallback to Euclidean
-                    local dist = D3bot.ZS.GetPathDistance(propPos, human:GetPos()) or propPos:Distance(human:GetPos())
+					if UseEuclidianWhenNoSiegeTarget == true then
+						dist = propPos:Distance(human:GetPos())
+					
+					else
+						dist = D3bot.ZS.GetPathDistance(propPos, human:GetPos())
+					end
                     if dist < closestHumanDist then
                         closestHumanDist = dist
                     end
