@@ -1007,7 +1007,7 @@ local function GetPrioritySiegeBarricade()
                 if IsValidHumanTarget(human) then
 					local dist
                     -- Use PathDistance for tactical accuracy, fallback to Euclidean
-					if UseEuclidianWhenNoSiegeTarget == true then
+					if HANDLER.CreeperUseSquareDistance or HANDLER.UseEuclidianWhenNoSiegeTarget then
 						dist = propPos:Distance(human:GetPos())
 					
 					else
