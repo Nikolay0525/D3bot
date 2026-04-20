@@ -1302,6 +1302,9 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                     mem.Volatile.ThreatResponseUntil = mem.Volatile.ThreatAttackUntil + 2.0
                     mem.Volatile.ThreatTarget = closestHuman
 
+					if mem.Volatile.BuildPosition then
+                        BlacklistPosition(bot, mem.Volatile.BuildPosition, "threat_detected")
+                    end
                     BlacklistPosition(bot, bot:GetPos(), "threat_pos")
                     
                     mem.Volatile.InterruptFlag = true
@@ -2472,6 +2475,9 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
 
 	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
 		
+		if mem.Volatile.BuildPosition then
+			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
+		end
 		BlacklistPosition(bot, bot:GetPos(), "took_damage_pos")
 
 		-- Жорстко перериваємо процеси
