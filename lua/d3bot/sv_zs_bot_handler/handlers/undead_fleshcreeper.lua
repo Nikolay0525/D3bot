@@ -1042,37 +1042,51 @@ local function GetNestClosestToHumans()
     local nests = ents.FindByClass("prop_creepernest")
     local humans = team.GetPlayers(TEAM_HUMAN)
 
-    if #nests == 0 or #humans == 0 then return nil, nil end
+    if #nests == 0 then return nil, nil end
 
     local bestNest = nil
     local bestDist = math.huge
 
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+
+    if not IsValid(siegeTarget) and #humans == 0 then return nil, nil end
+
     for _, nest in ipairs(nests) do
         if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
             local nestPos = nest:GetPos()
-            local minHumanDist = math.huge
+            local closestTargetDist = math.huge
 
-            for _, human in ipairs(humans) do
-                if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
-                    local dist
-                    
-                    if HANDLER.CreeperUseSquareDistance then
-                        dist = nestPos:Distance(human:GetPos())
-                    else
-                        dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
-                        if not dist or dist == math.huge then
-                            dist = nestPos:Distance(human:GetPos()) * 1.1 -- Штраф за відсутність шляху
-                        end
+            if IsValid(siegeTarget) then
+                if HANDLER.CreeperUseSquareDistance then
+                    closestTargetDist = nestPos:Distance(siegeTarget:GetPos())
+                else
+                    closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+                    if not closestTargetDist or closestTargetDist == math.huge then
+                        closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
                     end
+                end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist
+                        if HANDLER.CreeperUseSquareDistance then
+                            dist = nestPos:Distance(human:GetPos())
+                        else
+                            dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                            if not dist or dist == math.huge then
+                                dist = nestPos:Distance(human:GetPos()) * 1.1
+                            end
+                        end
 
-                    if dist < minHumanDist then
-                        minHumanDist = dist
+                        if dist < closestTargetDist then
+                            closestTargetDist = dist
+                        end
                     end
                 end
             end
 
-            if minHumanDist < bestDist then
-                bestDist = minHumanDist
+            if closestTargetDist < bestDist then
+                bestDist = closestTargetDist
                 bestNest = nest
             end
         end
@@ -1108,42 +1122,54 @@ function HANDLER.GetClosestNestNeedingRepair()
     local nests = ents.FindByClass("prop_creepernest")
     local humans = team.GetPlayers(TEAM_HUMAN)
 
-    if #nests == 0 or #humans == 0 then 
-        return nil, nil, nil 
-    end
+    if #nests == 0 then return nil, nil, nil end
 
     local bestNest = nil
     local bestDist = math.huge
     local bestHealthPercent = 1
+
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+
+    if not IsValid(siegeTarget) and #humans == 0 then return nil, nil, nil end
 
     for _, nest in ipairs(nests) do
         local needsRepair, healthPercent = IsNestDamaged(nest)
         
         if needsRepair then
             local nestPos = nest:GetPos()
-            local minHumanDist = math.huge
+            local closestTargetDist = math.huge
             
-            for _, human in ipairs(humans) do
-                if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
-                    local dist
-                    
-                    if HANDLER.CreeperUseSquareDistance then
-                        dist = nestPos:Distance(human:GetPos())
-                    else
-                        dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
-                        if not dist or dist == math.huge then
-                            dist = nestPos:Distance(human:GetPos()) * 1.1
-                        end
+            if IsValid(siegeTarget) then
+                if HANDLER.CreeperUseSquareDistance then
+                    closestTargetDist = nestPos:Distance(siegeTarget:GetPos())
+                else
+                    closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+                    if not closestTargetDist or closestTargetDist == math.huge then
+                        closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
                     end
-                    
-                    if dist < minHumanDist then
-                        minHumanDist = dist
+                end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist
+                        if HANDLER.CreeperUseSquareDistance then
+                            dist = nestPos:Distance(human:GetPos())
+                        else
+                            dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                            if not dist or dist == math.huge then
+                                dist = nestPos:Distance(human:GetPos()) * 1.1
+                            end
+                        end
+                        
+                        if dist < closestTargetDist then
+                            closestTargetDist = dist
+                        end
                     end
                 end
             end
             
-            if minHumanDist < bestDist then
-                bestDist = minHumanDist
+            if closestTargetDist < bestDist then
+                bestDist = closestTargetDist
                 bestNest = nest
                 bestHealthPercent = healthPercent
             end
@@ -1164,32 +1190,44 @@ local function GetFurthestInvalidNest()
     local furthestNest = nil
     local maxDist = 0
 
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+
     for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
         if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
             local nestPos = nest:GetPos()
-            local closestHumanDist = math.huge
+            local closestTargetDist = math.huge
 
-            for _, human in ipairs(humans) do
-                if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
-                    local dist
-                    
-                    if HANDLER.CreeperUseSquareDistance then
-                        dist = nestPos:Distance(human:GetPos())
-                    else
-                        dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
-                        if not dist or dist == math.huge then
-                        	dist = nestPos:Distance(human:GetPos()) * 2.0
-                        end
+            if IsValid(siegeTarget) then
+                if HANDLER.CreeperUseSquareDistance then
+                    closestTargetDist = nestPos:Distance(siegeTarget:GetPos())
+                else
+                    closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+                    if not closestTargetDist or closestTargetDist == math.huge then
+                        closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 2.0
                     end
+                end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist
+                        if HANDLER.CreeperUseSquareDistance then
+                            dist = nestPos:Distance(human:GetPos())
+                        else
+                            dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                            if not dist or dist == math.huge then
+                                dist = nestPos:Distance(human:GetPos()) * 2.0
+                            end
+                        end
 
-                    if dist < closestHumanDist then
-                        closestHumanDist = dist
+                        if dist < closestTargetDist then
+                            closestTargetDist = dist
+                        end
                     end
                 end
             end
 
-            if closestHumanDist >= NEST_TOO_FAR_DISTANCE and closestHumanDist > maxDist then
-                maxDist = closestHumanDist
+            if closestTargetDist >= NEST_TOO_FAR_DISTANCE and closestTargetDist > maxDist then
+                maxDist = closestTargetDist
                 furthestNest = nest
             end
         end

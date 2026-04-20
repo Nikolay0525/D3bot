@@ -36,7 +36,7 @@ D3bot.ZombiesPerPlayerWave = 0			-- Number of additional bot zombies every wave 
 D3bot.ZombiesPerMinute = 0				-- Number of additional bot zombies every minute.
 D3bot.ZombiesPerWave = 0				-- Number of additional bot zombies every wave.
 D3bot.ZombiesCountAddition = 0			-- Number of additional bot zombies.
-D3bot.SurvivorsPerPlayer = 0--1.2		-- Survivor bots per total player (non bot) amount. They will only spawn pre round.
+D3bot.SurvivorsPerPlayer = 4--1.2		-- Survivor bots per total player (non bot) amount. They will only spawn pre round.
 D3bot.SurvivorCountAddition = 0			-- BotMod for survivor bots.
 
 -- Survivor (human) bots are currently not production ready.
