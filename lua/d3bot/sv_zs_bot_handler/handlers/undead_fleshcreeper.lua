@@ -122,7 +122,7 @@ local STATE_REPAIRING_NEST = 8
 
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
-local DEBUG_FLESHCREEPER = false
+local DEBUG_FLESHCREEPER = true 
 local DEBUG_STUCK = false
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
@@ -417,6 +417,9 @@ local function IsPositionBlacklisted(bot, pos)
 	return isBlacklisted
 end
 
+-- Minimum distance from existing nests
+HANDLER.MinNestDistance = 200
+-- When Nest build pos will be thown in "bin"
 local NEST_TOO_FAR_DISTANCE = 900
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
@@ -942,79 +945,6 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	return nil
 end
 
--- Minimum distance from existing nests
-HANDLER.MinNestDistance = 200
-
--- NOTE: IsTooCloseToNest and HasClearFloor are now provided by D3bot.ZS (sv_zs_utilities.lua)
--- Local aliases are defined above near the other shared function aliases
--- NOTE: BlacklistPosition and IsPositionBlacklisted are defined earlier in this file
-
----Finds an alternative open build position away from nests and obstacles.
----Searches in expanding rings around the center position.
----Prioritizes positions hidden from humans (behind walls).
----@param bot GPlayer The bot player
----@param centerPos GVector Center position to search from
----@param searchRadius number? Search radius (defaults to 500)
----@return GVector? Best open build position, or nil if none found
-local function FindOpenBuildPosition(bot, centerPos, searchRadius)
-	searchRadius = searchRadius or 500
-	local botPos = bot:GetPos()
-
-	-- Helper function to validate open position
-	local function ValidateOpenPosition(groundPos, requireHidden)
-		-- Check not too close to any nest
-		local tooClose, _ = IsTooCloseToNest(groundPos, HANDLER.MinNestDistance + 50)
-		if tooClose then return false end
-
-		-- OPTION 3: Check if position is blacklisted (bot died too many times going there)
-		if IsPositionBlacklisted(bot, groundPos) then
-			return false
-		end
-
-		-- Check not too close to humans (match game: GAMEMODE.CreeperNestDistBuild = 420)
-		for _, pl in ipairs(team.GetPlayers(TEAM_HUMAN)) do
-			if IsValidHumanTarget(pl) and pl:GetPos():Distance(groundPos) < 420 then
-				return false
-			end
-		end
-
-		-- Check not near barricades, unnailed props, zombie spawns, or gas
-		if IsNearBarricade(groundPos, HANDLER.BarricadeAvoidDistance) then return false end
-		if IsNearUnnailedProp(groundPos, HANDLER.BarricadeAvoidDistance) then return false end -- Avoid unnailed props too
-		if IsNearZombieSpawn(groundPos, 256) then return false end -- Match game: GAMEMODE.CreeperNestDistBuildZSpawn = 256
-		if IsNearGas(groundPos, HANDLER.GasAvoidDistance) then return false end
-
-		-- ALWAYS check if hidden from humans - nests in line of sight get destroyed quickly
-		if not IsHiddenFromHumans(groundPos, 1500) then
-			return false
-		end
-
-		return true
-	end
-
-	-- Find HIDDEN positions only (behind walls)
-	for radius = 100, searchRadius, 75 do
-		local startAngle = math.random(0, 359)
-		for offset = 0, 330, 30 do
-			local angle = (startAngle + offset) % 360
-			local rad = math.rad(angle)
-			local testPos = centerPos + Vector(math.cos(rad) * radius, math.sin(rad) * radius, 0)
-
-			local hasClear, groundPos = HasClearFloor(testPos)
-			if hasClear and groundPos and ValidateOpenPosition(groundPos, true) then
-				DebugPrint("Found HIDDEN open build position at radius:", radius, "angle:", angle)
-				return groundPos
-			end
-		end
-	end
-
-	-- No hidden position found - return nil (don't build in line of sight)
-	DebugPrint("FindOpenBuildPosition: No hidden position found, skipping build")
-	return nil
-end
-
--- CountOwnBuiltNests now uses D3bot.ZS.CountOwnBuiltNests (aliased above)
-
 ---Tags nearby unowned nests with this bot's OwnerUID.
 ---Only tags UNBUILT nests to prevent new spawns from claiming existing nests.
 ---@param bot GPlayer The bot player
@@ -1126,12 +1056,9 @@ local function GetNestClosestToHumans()
                 if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
                     local dist
                     
-                    -- РОЗУМНА ВИЛКА ОБЧИСЛЕННЯ:
                     if HANDLER.CreeperUseSquareDistance then
-                        -- Дешева лінійка
                         dist = nestPos:Distance(human:GetPos())
                     else
-                        -- Важкий шлях
                         dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
                         if not dist or dist == math.huge then
                             dist = nestPos:Distance(human:GetPos()) * 1.1 -- Штраф за відсутність шляху
@@ -1337,10 +1264,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                     mem.Volatile.ThreatResponseUntil = mem.Volatile.ThreatAttackUntil + 2.0
                     mem.Volatile.ThreatTarget = closestHuman
 
-                    -- "ЗАБУВАЄМО" БУДІВНИЦТВО (як при OnTakeDamage)
-                    if mem.Volatile.BuildPosition then
-                        BlacklistPosition(bot, mem.Volatile.BuildPosition, "threat_detected")
-                    end
                     BlacklistPosition(bot, bot:GetPos(), "threat_pos")
                     
                     mem.Volatile.InterruptFlag = true
@@ -2155,14 +2078,10 @@ local function CreateBehaviorCoroutine(bot)
 					mem.Volatile.RebuildNearHuman = true
 				elseif IsValid(mem.Volatile.RelocateTarget) then
 					DebugPrint("Coroutine: Relocation nest destroyed, building near target")
-					local targetPos = mem.Volatile.RelocateTarget:GetPos()
-					mem.Volatile.BuildPosition = FindOpenBuildPosition(bot, targetPos, 800)
 					mem.Volatile.RelocateTarget = nil
 					mem.Volatile.RelocateType = nil
+					mem.Volatile.RebuildNearHuman = true
 				else
-					-- Руйнування через зіпсовану печатку.
-					-- ПРОСТО очищаємо пам'ять. Бот "провалиться" в будівництво, щоб зробити заміну.
-					-- Друге гніздо він зламає лише тоді, коли добудує це (через CheckForInterrupts).
 					mem.Volatile.CorruptedSigil = nil
 				end
 				mem.Volatile.NestToDestroy = nil
@@ -2232,34 +2151,22 @@ local function CreateBehaviorCoroutine(bot)
 
 			-- Find build position
 			local buildPos = nil
+			
 			if mem.Volatile.RebuildNearHuman then
-				-- Prioritize building near humans after nest destruction
-				local humans = D3bot.RemoveObsDeadTgts(team.GetPlayers(TEAM_HUMAN))
-				if #humans > 0 then
-					local botPos = bot:GetPos()
-					table.sort(humans, function(a, b) return botPos:DistToSqr(a:GetPos()) < botPos:DistToSqr(b:GetPos()) end)
-					buildPos = FindOpenBuildPosition(bot, humans[1]:GetPos(), 800)
-				end
+				DebugPrint("Coroutine: Relocating nest, using normal pathfinding logic without sigil")
+				mem.Volatile.TargetSigil = nil
 				mem.Volatile.RebuildNearHuman = nil
+			else
+				mem.Volatile.TargetSigil = FindTargetSigil(bot)
 			end
 
-			if not buildPos then
-				local targetSigil = FindTargetSigil(bot)
-				mem.Volatile.TargetSigil = targetSigil
-				
-				-- Active scanning for siege targets instead of waiting to get stuck
-				local siegeTarget = GetPrioritySiegeBarricade()
-				
-				-- If no priority prop found by scanner, check if we had a manual one from being stuck
-				if not IsValid(siegeTarget) then
-					siegeTarget = mem.Volatile.SiegeBarricade
-				end
-				
-				mem.Volatile.SiegeBarricade = nil
-				
-				-- Now the third parameter is reliably passed
-				buildPos = FindBuildPosition(bot, targetSigil, siegeTarget)
+			local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+			if not IsValid(siegeTarget) then
+				siegeTarget = mem.Volatile.SiegeBarricade
 			end
+			mem.Volatile.SiegeBarricade = nil
+
+			buildPos = FindBuildPosition(bot, mem.Volatile.TargetSigil, siegeTarget)
 
 			if not buildPos then
 				DebugPrint("Coroutine: No build position found, waiting...")
@@ -2527,10 +2434,7 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
 
 	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
 		
-		-- Блокуємо і цільову позицію, і фактичне місце, де бот отримав по голові
-		if mem.Volatile.BuildPosition then
-			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
-		end
+		BlacklistPosition(bot, bot:GetPos(), "took_damage_pos")
 
 		-- Жорстко перериваємо процеси
 		mem.Volatile.InterruptFlag = true
