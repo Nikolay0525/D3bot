@@ -42,7 +42,7 @@ HANDLER.AllowEuclideanFallback = false
 
 -- @USE EUCLIDIAN DISTANCE IN NEST DISTANCE FUNCS INSTEAD OF PATHFINDING FOR NO SIEGETARGET SITUATION?
 
-HANDLER.UseEuclidianWhenNoSiegeTarget = false   
+HANDLER.UseEuclidianWhenNoSiegeTarget = false
 
 -- Gas-aware nest placement (coroutine-based strategic positioning)
 HANDLER.GasAwarePlacement = true -- Enable gas-aware nest placement scoring
@@ -126,7 +126,7 @@ local STATE_REPAIRING_NEST = 8
 
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
-local DEBUG_FLESHCREEPER = true 
+local DEBUG_FLESHCREEPER = false  
 local DEBUG_STUCK = false
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
