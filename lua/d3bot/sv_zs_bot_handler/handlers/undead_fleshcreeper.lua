@@ -430,9 +430,11 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	local botPos = bot:GetPos()
 	local mapNavMesh = D3bot.MapNavMesh
 	local GetPathDistance = D3bot.ZS.GetPathDistance
-
+	
 	local mem = bot.D3bot_Mem
     if not mem or not mem.Volatile then return nil end
+	
+	local debugFails = { sight = 0, onPath = 0, closeNest = 0, tooCloseDist = 0, nearSpawn = 0, gasAvoid = 0,  nearBarricade = 0, nearUnnailed = 0, noFloor = 0, blacklisted = 0}
 
 	-- initial limit 50, max attempts 3, max amount of nodes 200, more and you will blow your PC
     mem.Volatile.BuildNodeSearchLimit = mem.Volatile.BuildNodeSearchLimit or 50
@@ -441,10 +443,14 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
     local function ReturnResult(pos)
         if pos then
-            mem.Volatile.BuildNodeSearchLimit = 50
             mem.Volatile.BuildNodeFailCount = 0
             return pos
         else
+			if debugFails.blacklisted > 2 then -- we can just wait maybe when blacklist expire we will place there
+                DebugPrint("FindBuildPosition: Search failed, but ", debugFails.blacklisted, " nodes were blacklisted. Waiting for expiry, NOT increasing fail count.")
+                return nil
+            end
+
             mem.Volatile.BuildNodeFailCount = mem.Volatile.BuildNodeFailCount + 1
             
             if mem.Volatile.BuildNodeFailCount >= 3 then
@@ -488,8 +494,6 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	if barricadePos then
 		DebugPrint("FindBuildPosition: Barricade blocking path at", barricadePos, "- prioritizing positions near barricade")
 	end
-
-	local debugFails = { sight = 0, onPath = 0, closeNest = 0, tooCloseDist = 0, nearSpawn = 0, gasAvoid = 0,  nearBarricade = 0, nearUnnailed = 0, noFloor = 0, blacklisted = 0}
 
 	-- Helper function to validate a position (returns testPos if valid, nil otherwise)
 	-- When barricadeNearby=true, we allow positions near barricades (for barricade-priority mode)
