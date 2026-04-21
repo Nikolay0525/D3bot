@@ -457,9 +457,13 @@ function D3bot.ZS.IsIgnorableProp(ent)
 			return false
 		end
 		-- Check if it's a barricade object - don't ignore those
-		if ent.IsBarricadeObject and ent:IsBarricadeObject() then
-			return false
-		end
+		if type(ent.IsBarricadeObject) == "function" then
+            if ent:IsBarricadeObject() then 
+                return false 
+            end
+        elseif ent.IsBarricadeObject then
+            return false
+        end
 		-- Check model for specific ignorable props (metal tables, vending machines, etc.)
 		local model = ent:GetModel()
 		if model then
