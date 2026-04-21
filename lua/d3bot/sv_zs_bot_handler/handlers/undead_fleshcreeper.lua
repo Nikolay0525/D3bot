@@ -32,6 +32,10 @@ HANDLER.BarricadeAvoidDistance = 150 -- Distance to avoid barricades when buildi
 HANDLER.GasAvoidDistance = 500 -- Distance to avoid zombie gas when building (increased to prevent stuck)
 HANDLER.OpportunisticBuildDistance = 700 -- If within this distance of human while moving, build immediately at current position
 
+-- @ALLOW CREEPER TO BUILD SHITTY PLACED NEST EVEN IF HE CAN'T FIND WITH PATHFINDING@
+
+HANDLER.AllowEuclideanFallback = false
+
 -- Gas-aware nest placement (coroutine-based strategic positioning)
 HANDLER.GasAwarePlacement = true -- Enable gas-aware nest placement scoring
 HANDLER.GasComplementaryMinDist = 500 -- Minimum distance from gas for complementary coverage
@@ -114,8 +118,8 @@ local STATE_REPAIRING_NEST = 8
 
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
-local DEBUG_FLESHCREEPER = false         
-local DEBUG_STUCK = false 
+local DEBUG_FLESHCREEPER = true  
+local DEBUG_STUCK = false
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
 ---@param botOrMsg GPlayer|any First argument - either a bot player for identification or a message part
@@ -365,7 +369,7 @@ local GetGasSpawnerPositions = D3bot.ZS.GetGasSpawnerPositions
 local CalculateGasCoverageScore = D3bot.ZS.CalculateGasCoverageScore
 
 -- Blacklist expiry time in seconds (positions become available again after this)
-local BLACKLIST_EXPIRY_TIME = 120
+local BLACKLIST_EXPIRY_TIME = 90
 
 ---Blacklists a build position so the bot won't try to build there again.
 ---@param bot GPlayer The bot player
@@ -399,7 +403,7 @@ local function IsPositionBlacklisted(bot, pos)
 	for _, entry in ipairs(mem.BlacklistedBuildPositions) do
 		if currentTime - entry.time < BLACKLIST_EXPIRY_TIME then
 			table.insert(validBlacklist, entry)
-			if pos:Distance(entry.pos) < 500 then
+			if pos:Distance(entry.pos) < 200 then
 				isBlacklisted = true
 			end
 		end
@@ -409,8 +413,10 @@ local function IsPositionBlacklisted(bot, pos)
 	return isBlacklisted
 end
 
-local NEST_TOO_FAR_DISTANCE = 900
-local NEST_TOO_FAR_DISTANCE_SQR = NEST_TOO_FAR_DISTANCE * NEST_TOO_FAR_DISTANCE
+-- Minimum distance from existing nests
+HANDLER.MinNestDistance = 200
+-- When Nest build pos will be thown in "bin"
+local NEST_TOO_FAR_DISTANCE = 1500 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
 ---Priority 1: Near humans by path distance (but hidden from them)
@@ -424,6 +430,39 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	local botPos = bot:GetPos()
 	local mapNavMesh = D3bot.MapNavMesh
 	local GetPathDistance = D3bot.ZS.GetPathDistance
+	
+	local mem = bot.D3bot_Mem
+    if not mem or not mem.Volatile then return nil end
+	
+	local debugFails = { sight = 0, onPath = 0, closeNest = 0, tooCloseDist = 0, nearSpawn = 0, gasAvoid = 0,  nearBarricade = 0, nearUnnailed = 0, noFloor = 0, blacklisted = 0}
+
+	-- initial limit 50, max attempts 3, max amount of nodes 200, more and you will blow your PC
+    mem.Volatile.BuildNodeSearchLimit = mem.Volatile.BuildNodeSearchLimit or 50
+    mem.Volatile.BuildNodeFailCount = mem.Volatile.BuildNodeFailCount or 0
+    local currentLimit = mem.Volatile.BuildNodeSearchLimit
+
+    local function ReturnResult(pos)
+        if pos then
+            mem.Volatile.BuildNodeFailCount = 0
+            return pos
+        else
+			if debugFails.blacklisted > 2 then -- we can just wait maybe when blacklist expire we will place there
+                DebugPrint("FindBuildPosition: Search failed, but ", debugFails.blacklisted, " nodes were blacklisted. Waiting for expiry, NOT increasing fail count.")
+                return nil
+            end
+
+            mem.Volatile.BuildNodeFailCount = mem.Volatile.BuildNodeFailCount + 1
+            
+            if mem.Volatile.BuildNodeFailCount >= 3 then
+                local oldLimit = mem.Volatile.BuildNodeSearchLimit
+                mem.Volatile.BuildNodeSearchLimit = math.min(oldLimit * 2, 200)
+                mem.Volatile.BuildNodeFailCount = 0
+                DebugPrint("FindBuildPosition: Failed 3 times. Increased search limit from ", oldLimit, " to ", mem.Volatile.BuildNodeSearchLimit)
+            end
+            
+            return nil
+        end
+    end
 
 	-- Collect all valid humans
 	local humans = {}
@@ -459,6 +498,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	-- Helper function to validate a position (returns testPos if valid, nil otherwise)
 	-- When barricadeNearby=true, we allow positions near barricades (for barricade-priority mode)
 	local function ValidatePosition(testPos, requireHidden, requireOffHumanPath, barricadeNearby)
+
 		-- Trace down to find ground
 		local tr = util.TraceLine({
 			start = testPos + Vector(0, 0, 100),
@@ -466,7 +506,10 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			mask = MASK_SOLID_BRUSHONLY
 		})
 
-		if not (tr.Hit and tr.HitWorld) then return nil end
+		if not (tr.Hit and tr.HitWorld) then
+			debugFails.noFloor = debugFails.noFloor + 1
+			return nil 
+		end
 
 		testPos = tr.HitPos + Vector(0, 0, 10)
 
@@ -481,6 +524,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 				closestDist = dist
 			end
 			if dist < minHumanDist then
+				debugFails.tooCloseDist = debugFails.tooCloseDist + 1
 				return nil -- Занадто близько до людини
 			end
 		end
@@ -490,30 +534,48 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		-- end
 
 		-- Check if position is blacklisted (nest was shot there before)
-		if IsPositionBlacklisted(bot, testPos) then return nil end
+		if IsPositionBlacklisted(bot, testPos) then 
+			debugFails.blacklisted = debugFails.blacklisted + 1
+			return nil 
+		end
 
 		-- Check not near barricades, unnailed props, zombie spawns, or gas
 		-- Exception: when barricadeNearby=true, we allow positions near barricades
-		if not barricadeNearby and IsNearBarricade(testPos, HANDLER.BarricadeAvoidDistance) then return nil end
-		if not barricadeNearby and IsNearUnnailedProp(testPos, HANDLER.BarricadeAvoidDistance) then return nil end -- Avoid unnailed props too
-		if IsNearZombieSpawn(testPos, 256) then return nil end -- Match game: GAMEMODE.CreeperNestDistBuildZSpawn = 256
-		if IsNearGas(testPos, HANDLER.GasAvoidDistance) then return nil end
+		if not barricadeNearby and IsNearBarricade(testPos, HANDLER.BarricadeAvoidDistance) then 
+			debugFails.nearBarricade = debugFails.nearBarricade + 1
+			return nil 
+		end
+		if not barricadeNearby and IsNearUnnailedProp(testPos, HANDLER.BarricadeAvoidDistance) then 
+			debugFails.nearUnnailed = debugFails.nearUnnailed + 1
+			return nil 
+		end -- Avoid unnailed props too
+		if IsNearZombieSpawn(testPos, 256) then 
+			debugFails.nearSpawn = debugFails.nearSpawn + 1
+			return nil 
+		end -- Match game: GAMEMODE.CreeperNestDistBuildZSpawn = 256
+		if IsNearGas(testPos, HANDLER.GasAvoidDistance) then 
+			debugFails.gasAvoid = debugFails.gasAvoid + 1
+			return nil 
+		end
 
 		-- Check not too close to existing nests (match game: GAMEMODE.CreeperNestDistBuildNest = 192)
 		for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
 			if IsValid(nest) and testPos:Distance(nest:GetPos()) < HANDLER.MinNestDistance then
+				debugFails.closeNest = debugFails.closeNest + 1
 				return nil -- Too close to existing nest
 			end
 		end
 
 		-- ALWAYS check if hidden from humans - nests in line of sight get destroyed quickly
 		if not IsHiddenFromHumans(testPos, 1500) then
+			debugFails.sight = debugFails.sight + 1
 			return nil -- Position is visible to humans
 		end
 
 		-- Check if position is OFF the human walking path (if required)
 		-- Nests on human paths get destroyed quickly
 		if requireOffHumanPath and IsNearHumanPath(testPos, 150) then
+			debugFails.onPath = debugFails.onPath + 1
 			return nil -- Position is on human walking path
 		end
 
@@ -549,20 +611,13 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		local barricadePathDist = nil
 
 		if barricadePos then
-			-- РЕЖИМ ОБЛОГИ: Головна ціль — барикада
 			barricadePathDist = D3bot.ZS.GetPathDistance(testPos, barricadePos)
 			
-			-- Відсікаємо, якщо до БАРИКАДИ не дійти або занадто далеко
-			if barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE then
+			if not barricadePathDist or barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE then
 				return -1000, bestHumanPathDist
 			end
-			-- ЗВЕРНИ УВАГУ: Ми тут ІГНОРУЄМО bestHumanPathDist! 
-			-- Навіть якщо до людей math.huge (база повністю закрита),
-			-- Кріпер все одно поставить гніздо біля барикади, щоб її зламати.
 		else
-			-- НОРМАЛЬНИЙ РЕЖИМ: Головна ціль — люди
-			-- Відсікаємо, якщо до ЛЮДЕЙ не дійти або занадто далеко
-			if bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
+			if not bestHumanPathDist or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
 				return -1000, bestHumanPathDist
 			end
 		end
@@ -581,6 +636,8 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 				score = score + 150 -- Still good, very close
 			elseif barricadeDist <= 800 then
 				score = score + 100 -- Acceptable distance
+			elseif barricadeDist > 800 then
+				score = score + 20 -- far distance
 			end
 
 			-- Additional bonus for short path to barricade
@@ -590,7 +647,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 			-- Human proximity is secondary when in barricade mode
 			if bestHumanPathDist < math.huge then
-				if bestHumanPathDist >= 420 and bestHumanPathDist <= 1500 then --------- чому? 1500 це далеко
+				if bestHumanPathDist >= 420 and bestHumanPathDist <= 1500 then
 					score = score + 50 -- Bonus for being near humans too
 				end
 			end
@@ -600,16 +657,16 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			-- AGGRESSIVE: Prefer positions closer to humans (just above 420 game limit)
 			if bestHumanPathDist < math.huge then
 				-- Ideal range: 420-900 path distance (as close as possible while valid)
-				if bestHumanPathDist >= 420 and bestHumanPathDist <= 900 then
+				if bestHumanPathDist >= 450 and bestHumanPathDist <= 700 then
 					score = score + 200 -- Ideal range bonus
 					-- Closer to 450 is best (just above 420 minimum)
 					score = score + math.max(0, 100 - math.abs(bestHumanPathDist - 450) / 3)
-				elseif bestHumanPathDist > 900 and bestHumanPathDist <= 1500 then
+				elseif bestHumanPathDist > 700 and bestHumanPathDist <= 1000 then
 					score = score + 100 -- Acceptable but farther
-				elseif bestHumanPathDist > 1500 then
+				elseif bestHumanPathDist > 1000 then
 					score = score + 20 -- Too far, low priority
 				else
-					score = score + 50 -- Too close (< 420 path), invalid
+					score = score + 20 -- Too close (< 420 path), invalid
 				end
 			end
 		end
@@ -680,7 +737,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {barricadeNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 80 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= currentLimit do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -688,9 +745,9 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 					checkedNodes[node] = true
 					local nodePos = node.Pos
 
-					-- Only consider nodes 200-800 units from barricade
+					-- Only consider nodes 100-1000 units from barricade
 					local distToBarricade = nodePos:Distance(barricadePos)
-					if distToBarricade >= 200 and distToBarricade <= 800 then
+					if distToBarricade >= 100 and distToBarricade <= 1000 then
 						-- Must still be 420+ units away from humans
 						local tooClose = false
 						for _, hData in ipairs(humans) do
@@ -708,7 +765,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 					-- Add linked nodes to search
 					if node.LinkByLinkedNode then
 						for linkedNode, _ in pairs(node.LinkByLinkedNode) do
-							if not checkedNodes[linkedNode] and linkedNode.Pos:Distance(barricadePos) < 800 then
+							if not checkedNodes[linkedNode] and linkedNode.Pos:Distance(barricadePos) < 1000 then
 								table.insert(nodesToCheck, linkedNode)
 							end
 						end
@@ -727,7 +784,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {humanNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 100 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= currentLimit do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -775,16 +832,36 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		local validPos = ValidatePosition(testPos, false, false, allowBarricadeNearby)
 		if validPos then
 			local score, humanPathDist = ScorePosition(validPos, isHidden, isOffHumanPath)
-			table.insert(scoredCandidates, {
-				pos = validPos,
-				score = score,
-				humanPathDist = humanPathDist,
-				isHidden = isHidden,
-				isOffHumanPath = isOffHumanPath
-			})
+			if score > -500 then
+				table.insert(scoredCandidates, {
+					pos = validPos,
+					score = score,
+					humanPathDist = humanPathDist,
+					isHidden = isHidden,
+					isOffHumanPath = isOffHumanPath
+				})
+			else
+				DebugPrint("FindBuildPosition: node thrown away score are too low <-500 (", math.floor(humanPathDist), ")")
+			end
 		end
 	end
 
+	-- Print debug statistics to console
+	DebugPrint("=== REJECTED POSITIONS DEBUG (Checked: " .. #candidatePositions .. ") ===")
+	DebugPrint("❌ Line of sight (sight): " .. debugFails.sight)
+	DebugPrint("❌ Radius 420 (tooCloseDist): " .. debugFails.tooCloseDist)
+	DebugPrint("❌ Near barricades (nearBarricade): " .. debugFails.nearBarricade)
+	DebugPrint("❌ Near unnailed props (nearUnnailed): " .. debugFails.nearUnnailed)
+	DebugPrint("❌ On human path (onPath): " .. debugFails.onPath)
+	DebugPrint("❌ Close to nests (closeNest): " .. debugFails.closeNest)
+	DebugPrint("❌ Near zombie spawn (nearSpawn): " .. debugFails.nearSpawn)
+	DebugPrint("❌ Poison gas (gasAvoid): " .. debugFails.gasAvoid)
+	DebugPrint("❌ No floor/Invalid navmesh (noFloor): " .. debugFails.noFloor)
+	DebugPrint("❌ Blacklisted after death (blacklisted): " .. debugFails.blacklisted)
+	DebugPrint("================================================")
+
+
+	
 	-- Sort by score (highest first)
 	table.sort(scoredCandidates, function(a, b) return a.score > b.score end)
 
@@ -794,7 +871,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden and candidate.isOffHumanPath then
 			DebugPrint("Found HIDDEN+OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -802,7 +879,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden then
 			DebugPrint("Found HIDDEN nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -810,7 +887,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isOffHumanPath then
 			DebugPrint("Found OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -818,7 +895,12 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	if #scoredCandidates > 0 then
 		local best = scoredCandidates[1]
 		DebugPrint("Found nest position (fallback):", best.pos, "score:", best.score, "humanPathDist:", math.floor(best.humanPathDist))
-		return best.pos
+		return ReturnResult(best.pos)
+	end
+	
+	if not HANDLER.AllowEuclideanFallback then
+		DebugPrint("FindBuildPosition: Path-based search failed, and Euclidean fallback is DISABLED. Waiting...")
+		return ReturnResult(nil) 
 	end
 
 	-- FALLBACK: Use original direction-based logic if path-based failed
@@ -853,7 +935,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local validPos = ValidatePosition(testPos, true, true) -- hidden + off path
 			if validPos then
 				DebugPrint("Found HIDDEN direction-based position:", validPos)
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
@@ -873,7 +955,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local validPos = ValidatePosition(testPos, false, false) -- visible is ok
 			if validPos then
 				DebugPrint("Found visible direction-based position:", validPos)
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
@@ -884,86 +966,13 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		if distToHuman > 420 and distToHuman < 1200 then
 			local validPos = ValidatePosition(botPos, false, false)
 			if validPos then
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
 
-	return nil
+	return ReturnResult(nil)
 end
-
--- Minimum distance from existing nests
-HANDLER.MinNestDistance = 200
-
--- NOTE: IsTooCloseToNest and HasClearFloor are now provided by D3bot.ZS (sv_zs_utilities.lua)
--- Local aliases are defined above near the other shared function aliases
--- NOTE: BlacklistPosition and IsPositionBlacklisted are defined earlier in this file
-
----Finds an alternative open build position away from nests and obstacles.
----Searches in expanding rings around the center position.
----Prioritizes positions hidden from humans (behind walls).
----@param bot GPlayer The bot player
----@param centerPos GVector Center position to search from
----@param searchRadius number? Search radius (defaults to 500)
----@return GVector? Best open build position, or nil if none found
-local function FindOpenBuildPosition(bot, centerPos, searchRadius)
-	searchRadius = searchRadius or 500
-	local botPos = bot:GetPos()
-
-	-- Helper function to validate open position
-	local function ValidateOpenPosition(groundPos, requireHidden)
-		-- Check not too close to any nest
-		local tooClose, _ = IsTooCloseToNest(groundPos, HANDLER.MinNestDistance + 50)
-		if tooClose then return false end
-
-		-- OPTION 3: Check if position is blacklisted (bot died too many times going there)
-		if IsPositionBlacklisted(bot, groundPos) then
-			return false
-		end
-
-		-- Check not too close to humans (match game: GAMEMODE.CreeperNestDistBuild = 420)
-		for _, pl in ipairs(team.GetPlayers(TEAM_HUMAN)) do
-			if IsValidHumanTarget(pl) and pl:GetPos():Distance(groundPos) < 420 then
-				return false
-			end
-		end
-
-		-- Check not near barricades, unnailed props, zombie spawns, or gas
-		if IsNearBarricade(groundPos, HANDLER.BarricadeAvoidDistance) then return false end
-		if IsNearUnnailedProp(groundPos, HANDLER.BarricadeAvoidDistance) then return false end -- Avoid unnailed props too
-		if IsNearZombieSpawn(groundPos, 256) then return false end -- Match game: GAMEMODE.CreeperNestDistBuildZSpawn = 256
-		if IsNearGas(groundPos, HANDLER.GasAvoidDistance) then return false end
-
-		-- ALWAYS check if hidden from humans - nests in line of sight get destroyed quickly
-		if not IsHiddenFromHumans(groundPos, 1500) then
-			return false
-		end
-
-		return true
-	end
-
-	-- Find HIDDEN positions only (behind walls)
-	for radius = 100, searchRadius, 75 do
-		local startAngle = math.random(0, 359)
-		for offset = 0, 330, 30 do
-			local angle = (startAngle + offset) % 360
-			local rad = math.rad(angle)
-			local testPos = centerPos + Vector(math.cos(rad) * radius, math.sin(rad) * radius, 0)
-
-			local hasClear, groundPos = HasClearFloor(testPos)
-			if hasClear and groundPos and ValidateOpenPosition(groundPos, true) then
-				DebugPrint("Found HIDDEN open build position at radius:", radius, "angle:", angle)
-				return groundPos
-			end
-		end
-	end
-
-	-- No hidden position found - return nil (don't build in line of sight)
-	DebugPrint("FindOpenBuildPosition: No hidden position found, skipping build")
-	return nil
-end
-
--- CountOwnBuiltNests now uses D3bot.ZS.CountOwnBuiltNests (aliased above)
 
 ---Tags nearby unowned nests with this bot's OwnerUID.
 ---Only tags UNBUILT nests to prevent new spawns from claiming existing nests.
@@ -1004,6 +1013,45 @@ local function GetUnbuiltNest(bot)
     return nil
 end
 
+---Finds the most important nailed prop to siege (closest to humans by path)
+---@return GEntity? The priority barricade
+local function GetPrioritySiegeBarricade()
+    local props = ents.FindByClass("prop_physics*")
+    local humans = team.GetPlayers(TEAM_HUMAN)
+    if #humans == 0 then return nil end
+
+    local bestProp = nil
+    local bestDist = 1500 -- Max distance to consider a prop as part of a base
+
+    for _, ent in ipairs(props) do
+        if D3bot.ZS.IsValidBarricade(ent) then
+            local propPos = ent:GetPos()
+            local closestHumanDist = math.huge
+            
+            for _, human in ipairs(humans) do
+                if IsValidHumanTarget(human) then
+					local dist = D3bot.ZS.GetPathDistance(propPos, human:GetPos())
+                    -- Use PathDistance for tactical accuracy, fallback to Euclidean
+					if not dist then
+						dist = propPos:Distance(human:GetPos())
+					end
+                    if dist < closestHumanDist then 
+                        closestHumanDist = dist
+                    end
+                end
+            end
+
+            -- We want the prop that is closest to the humans (the "front door" of the base)
+            if closestHumanDist < bestDist then
+                bestDist = closestHumanDist
+                bestProp = ent
+            end
+        end
+    end
+
+    return bestProp
+end
+
 -- Distance to consider a nest "near" a corrupted sigil
 HANDLER.NestCorruptedSigilDistance = 1500
 
@@ -1019,44 +1067,56 @@ HANDLER.NestCorruptedSigilDistance = 1500
 -- Nest damage threshold for repair (percentage of max health)
 local NEST_REPAIR_THRESHOLD = 0.95 -- Repair if below 95% health
 
----Gets the nest with the closest path distance to any human.
----This nest should be protected from destruction and repaired if damaged.
+---Gets the nest with the closest distance to any human.
 ---@return GEntity? nest The nest closest to humans
----@return number? pathDist The path distance to nearest human
+---@return number? dist The distance to nearest human
 local function GetNestClosestToHumans()
-	local nests = ents.FindByClass("prop_creepernest")
-	local humans = team.GetPlayers(TEAM_HUMAN)
+    local nests = ents.FindByClass("prop_creepernest")
+    local humans = team.GetPlayers(TEAM_HUMAN)
 
-	if #nests == 0 or #humans == 0 then return nil, nil end
+    if #nests == 0 then return nil, nil end
 
-	local bestNest = nil
-	local bestDist = math.huge
+    local bestNest = nil
+    local bestDist = math.huge
 
-	for _, nest in ipairs(nests) do
-		if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
-			local nestPos = nest:GetPos()
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
 
-			-- Find shortest path distance to any human
-			for _, human in ipairs(humans) do
-				if IsValid(human) and human:Alive() then
-					local pathDist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
-					if pathDist and pathDist < bestDist then
-						bestDist = pathDist
-						bestNest = nest
-					elseif not pathDist then
-						-- Fallback to Euclidean if path fails
-						local euclideanDist = nestPos:Distance(human:GetPos()) * 1.1
-						if euclideanDist < bestDist then
-							bestDist = euclideanDist
-							bestNest = nest
-						end
-					end
+    if not IsValid(siegeTarget) and #humans == 0 then return nil, nil end
+
+    for _, nest in ipairs(nests) do
+        if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
+            local nestPos = nest:GetPos()
+            local closestTargetDist = math.huge
+
+            if IsValid(siegeTarget) then
+				closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+				if not closestTargetDist or closestTargetDist == math.huge then
+					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
 				end
-			end
-		end
-	end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                             
+						if not dist or dist == math.huge then
+							dist = nestPos:Distance(human:GetPos()) * 1.1
+						end
 
-	return bestNest, bestDist < math.huge and bestDist or nil
+                        if dist < closestTargetDist then
+                            closestTargetDist = dist
+                        end
+                    end
+                end
+            end
+
+            if closestTargetDist < bestDist then
+                bestDist = closestTargetDist
+                bestNest = nest
+            end
+        end
+    end
+
+    return bestNest, bestDist < math.huge and bestDist or nil
 end
 
 ---Checks if a nest is damaged and needs repair.
@@ -1081,41 +1141,51 @@ end
 ---Gets the closest nest to humans if it needs repair.
 ---@return GEntity? nest The nest needing repair (if any)
 ---@return number? healthPercent Current health percentage
----@return number? pathDist Path distance to nearest human
+---@return number? dist Distance to nearest human
 function HANDLER.GetClosestNestNeedingRepair()
     local nests = ents.FindByClass("prop_creepernest")
     local humans = team.GetPlayers(TEAM_HUMAN)
 
-    if #nests == 0 or #humans == 0 then 
-        return nil, nil, nil 
-    end
+    if #nests == 0 then return nil, nil, nil end
 
     local bestNest = nil
     local bestDist = math.huge
     local bestHealthPercent = 1
+
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+
+    if not IsValid(siegeTarget) and #humans == 0 then return nil, nil, nil end
 
     for _, nest in ipairs(nests) do
         local needsRepair, healthPercent = IsNestDamaged(nest)
         
         if needsRepair then
             local nestPos = nest:GetPos()
-            local minHumanDist = math.huge
+            local closestTargetDist = math.huge
             
-            for _, human in ipairs(humans) do
-                if IsValid(human) and human:Alive() then
-                    local pathDist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
-                    if not pathDist then
-                        pathDist = nestPos:Distance(human:GetPos()) * 1.1
-                    end
-                    
-                    if pathDist < minHumanDist then
-                        minHumanDist = pathDist
+            if IsValid(siegeTarget) then
+				closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+				if not closestTargetDist or closestTargetDist == math.huge then
+					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
+				end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+
+						if not dist or dist == math.huge then
+							dist = nestPos:Distance(human:GetPos()) * 1.1
+						end
+                        
+                        if dist < closestTargetDist then
+                            closestTargetDist = dist
+                        end
                     end
                 end
             end
             
-            if minHumanDist < bestDist then
-                bestDist = minHumanDist
+            if closestTargetDist < bestDist then
+                bestDist = closestTargetDist
                 bestNest = nest
                 bestHealthPercent = healthPercent
             end
@@ -1134,31 +1204,45 @@ local function GetFurthestInvalidNest()
     if #humans == 0 then return nil end
 
     local furthestNest = nil
-    local maxDistSqr = 0
+    local maxDist = 0
+
+    local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
 
     for _, nest in ipairs(ents.FindByClass("prop_creepernest")) do
         if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
             local nestPos = nest:GetPos()
-            local closestHumanDistSqr = math.huge
+            local closestTargetDist = math.huge
 
-            for _, human in ipairs(humans) do
-                if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
-                    local dist = nestPos:DistToSqr(human:GetPos())
-                    if dist < closestHumanDistSqr then
-                        closestHumanDistSqr = dist
+            if IsValid(siegeTarget) then
+				closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
+				if not closestTargetDist or closestTargetDist == math.huge then
+					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
+				end
+            else
+                for _, human in ipairs(humans) do
+                    if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
+                        local dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
+                            
+						if not dist or dist == math.huge then
+							dist = nestPos:Distance(human:GetPos()) * 1.1
+						end
+
+                        if dist < closestTargetDist then 
+                            closestTargetDist = dist
+                        end
                     end
                 end
             end
 
-            if closestHumanDistSqr >= NEST_TOO_FAR_DISTANCE_SQR and closestHumanDistSqr > maxDistSqr then
-                maxDistSqr = closestHumanDistSqr
+            if closestTargetDist >= NEST_TOO_FAR_DISTANCE and closestTargetDist > maxDist then
+                maxDist = closestTargetDist
                 furthestNest = nest
             end
         end
     end
 
     if furthestNest then
-        return furthestNest, math.sqrt(maxDistSqr)
+        return furthestNest, maxDist
     end
 
     return nil
@@ -1226,8 +1310,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                     mem.Volatile.ThreatResponseUntil = mem.Volatile.ThreatAttackUntil + 2.0
                     mem.Volatile.ThreatTarget = closestHuman
 
-                    -- "ЗАБУВАЄМО" БУДІВНИЦТВО (як при OnTakeDamage)
-                    if mem.Volatile.BuildPosition then
+					if mem.Volatile.BuildPosition then
                         BlacklistPosition(bot, mem.Volatile.BuildPosition, "threat_detected")
                     end
                     BlacklistPosition(bot, bot:GetPos(), "threat_pos")
@@ -1931,10 +2014,9 @@ end
 
 local function CheckForInterrupts(bot, mem)
 	local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
-	local closestNest, _ = GetNestClosestToHumans()
-
 	local corruptedSigil = D3bot.ZS.GetCorruptedSigil()
 	if IsValid(corruptedSigil) and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+		local closestNest, _ = GetNestClosestToHumans()
 		local nestToDestroy = D3bot.ZS.GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance)
 		if IsValid(nestToDestroy) and nestToDestroy ~= closestNest then
 			mem.Volatile.NestToDestroy = nestToDestroy
@@ -2044,14 +2126,10 @@ local function CreateBehaviorCoroutine(bot)
 					mem.Volatile.RebuildNearHuman = true
 				elseif IsValid(mem.Volatile.RelocateTarget) then
 					DebugPrint("Coroutine: Relocation nest destroyed, building near target")
-					local targetPos = mem.Volatile.RelocateTarget:GetPos()
-					mem.Volatile.BuildPosition = FindOpenBuildPosition(bot, targetPos, 800)
 					mem.Volatile.RelocateTarget = nil
 					mem.Volatile.RelocateType = nil
+					mem.Volatile.RebuildNearHuman = true
 				else
-					-- Руйнування через зіпсовану печатку.
-					-- ПРОСТО очищаємо пам'ять. Бот "провалиться" в будівництво, щоб зробити заміну.
-					-- Друге гніздо він зламає лише тоді, коли добудує це (через CheckForInterrupts).
 					mem.Volatile.CorruptedSigil = nil
 				end
 				mem.Volatile.NestToDestroy = nil
@@ -2121,22 +2199,22 @@ local function CreateBehaviorCoroutine(bot)
 
 			-- Find build position
 			local buildPos = nil
+			
 			if mem.Volatile.RebuildNearHuman then
-				-- Prioritize building near humans after nest destruction
-				local humans = D3bot.RemoveObsDeadTgts(team.GetPlayers(TEAM_HUMAN))
-				if #humans > 0 then
-					local botPos = bot:GetPos()
-					table.sort(humans, function(a, b) return botPos:DistToSqr(a:GetPos()) < botPos:DistToSqr(b:GetPos()) end)
-					buildPos = FindOpenBuildPosition(bot, humans[1]:GetPos(), 800)
-				end
+				DebugPrint("Coroutine: Relocating nest, using normal pathfinding logic without sigil")
+				mem.Volatile.TargetSigil = nil
 				mem.Volatile.RebuildNearHuman = nil
+			else
+				mem.Volatile.TargetSigil = FindTargetSigil(bot)
 			end
 
-			if not buildPos then
-				local targetSigil = FindTargetSigil(bot)
-				mem.Volatile.TargetSigil = targetSigil
-				buildPos = FindBuildPosition(bot, targetSigil)
+			local siegeTarget = GetPrioritySiegeBarricade and GetPrioritySiegeBarricade() or nil
+			if not IsValid(siegeTarget) then
+				siegeTarget = mem.Volatile.SiegeBarricade
 			end
+			mem.Volatile.SiegeBarricade = nil
+
+			buildPos = FindBuildPosition(bot, mem.Volatile.TargetSigil, siegeTarget)
 
 			if not buildPos then
 				DebugPrint("Coroutine: No build position found, waiting...")
@@ -2293,7 +2371,7 @@ local function ThinkFunction_Coroutine(bot)
 
 	-- Throttle thinking
 	if mem.nextFleshcreeperThink and mem.nextFleshcreeperThink > CurTime() then return end
-	mem.nextFleshcreeperThink = CurTime() + 0.5 + math.random() * 0.3
+	mem.nextFleshcreeperThink = CurTime() + 1 + math.random() * 0.3 -- Було 0.5
 
 	-- Path cost function setup (same as state machine version)
 	if not mem.Volatile.PathCostFunction then
@@ -2404,7 +2482,6 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
 
 	if mem.Volatile.FleshcreeperState == STATE_BUILDING or mem.Volatile.FleshcreeperState == STATE_MOVING_TO_BUILD then
 		
-		-- Блокуємо і цільову позицію, і фактичне місце, де бот отримав по голові
 		if mem.Volatile.BuildPosition then
 			BlacklistPosition(bot, mem.Volatile.BuildPosition, "took_damage")
 		end

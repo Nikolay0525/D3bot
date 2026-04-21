@@ -191,7 +191,7 @@ D3bot.ZS.LeaperPriority = {
     ["Agile Dead"] = 25,
 }
 
-local function IsValidBarricade(ent)
+function D3bot.ZS.IsValidBarricade(ent)
     if not IsValid(ent) then return false end
     
     local entClass = ent:GetClass()
@@ -254,7 +254,7 @@ function D3bot.ZS.CalculateSpawnContext(bot)
     for _, ent in ipairs(ents.FindInSphere(lastPos, 500)) do
         if ent:IsPlayer() and ent:Team() == TEAM_HUMAN and ent:Alive() then
             humansNearby = humansNearby + 1
-        elseif IsValidBarricade(ent) then
+        elseif D3bot.ZS.IsValidBarricade(ent) then
             propsNearby = propsNearby + 1
         end
     end
