@@ -369,7 +369,7 @@ local GetGasSpawnerPositions = D3bot.ZS.GetGasSpawnerPositions
 local CalculateGasCoverageScore = D3bot.ZS.CalculateGasCoverageScore
 
 -- Blacklist expiry time in seconds (positions become available again after this)
-local BLACKLIST_EXPIRY_TIME = 120
+local BLACKLIST_EXPIRY_TIME = 90
 
 ---Blacklists a build position so the bot won't try to build there again.
 ---@param bot GPlayer The bot player
@@ -430,6 +430,33 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	local botPos = bot:GetPos()
 	local mapNavMesh = D3bot.MapNavMesh
 	local GetPathDistance = D3bot.ZS.GetPathDistance
+
+	local mem = bot.D3bot_Mem
+    if not mem or not mem.Volatile then return nil end
+
+	-- initial limit 50, max attempts 3, max amount of nodes 200, more and you will blow your PC
+    mem.Volatile.BuildNodeSearchLimit = mem.Volatile.BuildNodeSearchLimit or 50
+    mem.Volatile.BuildNodeFailCount = mem.Volatile.BuildNodeFailCount or 0
+    local currentLimit = mem.Volatile.BuildNodeSearchLimit
+
+    local function ReturnResult(pos)
+        if pos then
+            mem.Volatile.BuildNodeSearchLimit = 50
+            mem.Volatile.BuildNodeFailCount = 0
+            return pos
+        else
+            mem.Volatile.BuildNodeFailCount = mem.Volatile.BuildNodeFailCount + 1
+            
+            if mem.Volatile.BuildNodeFailCount >= 3 then
+                local oldLimit = mem.Volatile.BuildNodeSearchLimit
+                mem.Volatile.BuildNodeSearchLimit = math.min(oldLimit * 2, 200)
+                mem.Volatile.BuildNodeFailCount = 0
+                DebugPrint("FindBuildPosition: Failed 3 times. Increased search limit from ", oldLimit, " to ", mem.Volatile.BuildNodeSearchLimit)
+            end
+            
+            return nil
+        end
+    end
 
 	-- Collect all valid humans
 	local humans = {}
@@ -706,7 +733,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {barricadeNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= currentLimit do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -753,7 +780,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {humanNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= currentLimit do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -840,7 +867,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden and candidate.isOffHumanPath then
 			DebugPrint("Found HIDDEN+OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -848,7 +875,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden then
 			DebugPrint("Found HIDDEN nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -856,7 +883,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isOffHumanPath then
 			DebugPrint("Found OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
-			return candidate.pos
+			return ReturnResult(candidate.pos)
 		end
 	end
 
@@ -864,12 +891,12 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	if #scoredCandidates > 0 then
 		local best = scoredCandidates[1]
 		DebugPrint("Found nest position (fallback):", best.pos, "score:", best.score, "humanPathDist:", math.floor(best.humanPathDist))
-		return best.pos
+		return ReturnResult(best.pos)
 	end
 	
 	if not HANDLER.AllowEuclideanFallback then
 		DebugPrint("FindBuildPosition: Path-based search failed, and Euclidean fallback is DISABLED. Waiting...")
-		return nil 
+		return ReturnResult(nil) 
 	end
 
 	-- FALLBACK: Use original direction-based logic if path-based failed
@@ -904,7 +931,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local validPos = ValidatePosition(testPos, true, true) -- hidden + off path
 			if validPos then
 				DebugPrint("Found HIDDEN direction-based position:", validPos)
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
@@ -924,7 +951,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local validPos = ValidatePosition(testPos, false, false) -- visible is ok
 			if validPos then
 				DebugPrint("Found visible direction-based position:", validPos)
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
@@ -935,12 +962,12 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		if distToHuman > 420 and distToHuman < 1200 then
 			local validPos = ValidatePosition(botPos, false, false)
 			if validPos then
-				return validPos
+				return ReturnResult(validPos)
 			end
 		end
 	end
 
-	return nil
+	return ReturnResult(nil)
 end
 
 ---Tags nearby unowned nests with this bot's OwnerUID.
