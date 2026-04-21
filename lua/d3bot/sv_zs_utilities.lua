@@ -646,22 +646,18 @@ function D3bot.ZS.GetPathDistance(startPos, endPos, abilities)
     local startNode = mapNavMesh:GetNearestNodeOrNil(startPos)
     local endNode = mapNavMesh:GetNearestNodeOrNil(endPos)
 
-    -- Якщо вузли не знайдено або це один і той самий вузол
     if not startNode or not endNode or startNode == endNode then 
         return startPos:Distance(endPos) 
     end
 
     abilities = abilities or {Walk = true, Jump = 70, Height = 72, Crab = false}
 
-    -- СПРАВЖНІЙ ПРОРАХУНОК ШЛЯХУ (A*)
     local path = D3bot.GetBestMeshPathOrNil(startNode, endNode, nil, nil, abilities)
     
-    -- Якщо шляху немає (наприклад, люди повністю забарикадувались у кімнаті без дірок)
     if not path or #path < 2 then 
         return nil 
     end
 
-    -- Рахуємо реальну дистанцію по вузлах (як зомбі буде бігти ногами)
     local totalDist = startPos:Distance(path[1].Pos)
     for i = 1, #path - 1 do
         totalDist = totalDist + path[i].Pos:Distance(path[i + 1].Pos)

@@ -1183,7 +1183,7 @@ local function GetFurthestInvalidNest()
             if IsValid(siegeTarget) then
 				closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
 				if not closestTargetDist or closestTargetDist == math.huge then
-					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 2.0
+					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
 				end
             else
                 for _, human in ipairs(humans) do
@@ -1191,7 +1191,7 @@ local function GetFurthestInvalidNest()
                         local dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
                             
 						if not dist or dist == math.huge then
-							dist = nestPos:Distance(human:GetPos()) * 2.0
+							dist = nestPos:Distance(human:GetPos()) * 1.1
 						end
 
                         if dist < closestTargetDist then 
@@ -1981,10 +1981,10 @@ end
 
 local function CheckForInterrupts(bot, mem)
 	local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
-	local closestNest, _ = GetNestClosestToHumans()
-
+	
 	local corruptedSigil = D3bot.ZS.GetCorruptedSigil()
 	if IsValid(corruptedSigil) and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
+		local closestNest, _ = GetNestClosestToHumans()
 		local nestToDestroy = D3bot.ZS.GetNestNearCorruptedSigil(corruptedSigil, HANDLER.NestCorruptedSigilDistance)
 		if IsValid(nestToDestroy) and nestToDestroy ~= closestNest then
 			mem.Volatile.NestToDestroy = nestToDestroy
