@@ -605,6 +605,8 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 				score = score + 150 -- Still good, very close
 			elseif barricadeDist <= 800 then
 				score = score + 100 -- Acceptable distance
+			elseif barricadeDist > 800 then
+				score = score + 20 -- far distance
 			end
 
 			-- Additional bonus for short path to barricade
@@ -712,9 +714,9 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 					checkedNodes[node] = true
 					local nodePos = node.Pos
 
-					-- Only consider nodes 200-800 units from barricade
+					-- Only consider nodes 100-1000 units from barricade
 					local distToBarricade = nodePos:Distance(barricadePos)
-					if distToBarricade >= 200 and distToBarricade <= 800 then
+					if distToBarricade >= 100 and distToBarricade <= 1000 then
 						-- Must still be 420+ units away from humans
 						local tooClose = false
 						for _, hData in ipairs(humans) do
@@ -732,7 +734,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 					-- Add linked nodes to search
 					if node.LinkByLinkedNode then
 						for linkedNode, _ in pairs(node.LinkByLinkedNode) do
-							if not checkedNodes[linkedNode] and linkedNode.Pos:Distance(barricadePos) < 800 then
+							if not checkedNodes[linkedNode] and linkedNode.Pos:Distance(barricadePos) < 1000 then
 								table.insert(nodesToCheck, linkedNode)
 							end
 						end
