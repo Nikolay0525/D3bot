@@ -416,7 +416,7 @@ end
 -- Minimum distance from existing nests
 HANDLER.MinNestDistance = 200
 -- When Nest build pos will be thown in "bin"
-local NEST_TOO_FAR_DISTANCE = 1200
+local NEST_TOO_FAR_DISTANCE = 1500 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
 ---Priority 1: Near humans by path distance (but hidden from them)
@@ -586,7 +586,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 				return -1000, bestHumanPathDist
 			end
 		else
-			if not bestHumanPathDistl or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
+			if not bestHumanPathDist or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
 				return -1000, bestHumanPathDist
 			end
 		end
@@ -614,7 +614,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 			-- Human proximity is secondary when in barricade mode
 			if bestHumanPathDist < math.huge then
-				if bestHumanPathDist >= 420 and bestHumanPathDist <= 1500 then --------- чому? 1500 це далеко
+				if bestHumanPathDist >= 420 and bestHumanPathDist <= 1500 then
 					score = score + 50 -- Bonus for being near humans too
 				end
 			end
@@ -624,13 +624,13 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			-- AGGRESSIVE: Prefer positions closer to humans (just above 420 game limit)
 			if bestHumanPathDist < math.huge then
 				-- Ideal range: 420-900 path distance (as close as possible while valid)
-				if bestHumanPathDist >= 420 and bestHumanPathDist <= 650 then
+				if bestHumanPathDist >= 450 and bestHumanPathDist <= 700 then
 					score = score + 200 -- Ideal range bonus
 					-- Closer to 450 is best (just above 420 minimum)
 					score = score + math.max(0, 100 - math.abs(bestHumanPathDist - 450) / 3)
-				elseif bestHumanPathDist > 650 and bestHumanPathDist <= 900 then
+				elseif bestHumanPathDist > 700 and bestHumanPathDist <= 1000 then
 					score = score + 100 -- Acceptable but farther
-				elseif bestHumanPathDist > 900 then
+				elseif bestHumanPathDist > 1000 then
 					score = score + 20 -- Too far, low priority
 				else
 					score = score + 20 -- Too close (< 420 path), invalid
@@ -704,7 +704,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {barricadeNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 80 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -751,7 +751,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			local nodesToCheck = {humanNode}
 			local nodeIndex = 1
 
-			while nodeIndex <= #nodesToCheck and nodeIndex <= 100 do -- Limit search
+			while nodeIndex <= #nodesToCheck and nodeIndex <= 50 do -- Limit search
 				local node = nodesToCheck[nodeIndex]
 				nodeIndex = nodeIndex + 1
 
@@ -1981,7 +1981,6 @@ end
 
 local function CheckForInterrupts(bot, mem)
 	local globalBuiltNests = D3bot.ZS.CountAllBuiltNests()
-	
 	local corruptedSigil = D3bot.ZS.GetCorruptedSigil()
 	if IsValid(corruptedSigil) and not IsValid(mem.Volatile.NestToDestroy) and mem.Volatile.FleshcreeperState ~= STATE_DESTROYING_NEST then
 		local closestNest, _ = GetNestClosestToHumans()
