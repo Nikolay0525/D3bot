@@ -2338,7 +2338,7 @@ local function ThinkFunction_Coroutine(bot)
 
 	-- Throttle thinking
 	if mem.nextFleshcreeperThink and mem.nextFleshcreeperThink > CurTime() then return end
-	mem.nextFleshcreeperThink = CurTime() + 0.5 + math.random() * 0.3
+	mem.nextFleshcreeperThink = CurTime() + 1 + math.random() * 0.3 -- Було 0.5
 
 	-- Path cost function setup (same as state machine version)
 	if not mem.Volatile.PathCostFunction then
