@@ -277,7 +277,7 @@ forceboss:help( "Sets target(s) as boss." )
 if SERVER then
 	local FORCEBOSS_WAVE_MIN = 1
 	local FORCEBOSS_WAVE_MAX = 6
-	local FORCEBOSS_INTERMISSION_SECONDS = 10 -- Matches ZS countdown (util.ToMinutesSecondsCD uses ceil)
+	local FORCEBOSS_INTERMISSION_SECONDS = 1 -- Matches ZS countdown (util.ToMinutesSecondsCD uses ceil)
 	local FORCEBOSS_RANDOM_BOSSCLASS = true
 	-- Uses D3bot's name list (loaded from `addons/d3bot/lua/d3bot/names/*.lua`, e.g. `fng_usernames.lua`).
 	-- Set this to a string (exact nickname) if you want to force a specific target instead.

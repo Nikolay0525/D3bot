@@ -409,6 +409,23 @@ function HANDLER.SelectorFunction(zombieClassName, team)
 	return team == TEAM_UNDEAD
 end
 
+local standardParams = {
+	["X"] = true, ["Y"] = true, ["Z"] = true,
+	["AreaXMax"] = true, ["AreaXMin"] = true,
+	["AreaYMax"] = true, ["AreaYMin"] = true,
+	["AreaZMax"] = true, ["AreaZMin"] = true
+}
+
+local function HasSpecialParams(params)
+	if type(params) ~= "table" then return false end
+	for key, value in pairs(params) do
+		if not standardParams[key] then
+			return true
+		end
+	end
+	return false
+end
+
 ---Updates the bot movement and input commands every frame.
 ---Handles movement, attacks, special abilities, and stuck detection.
 ---@param bot GPlayer The bot player entity
@@ -864,20 +881,26 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 	local nodeOrNil = mem.NodeOrNil
 	local nextNodeOrNil = mem.NextNodeOrNil
-	local currentAimParam, nextAimToParam
 
-	if D3bot.UsingSourceNav then
-		currentAimParam = nodeOrNil and nodeOrNil:GetMetaData().Params.Aim
-		nextAimToParam = nextNodeOrNil and nextNodeOrNil:GetMetaData().Params.AimTo
-	else
-		currentAimParam = nodeOrNil and nodeOrNil.Params.Aim
-		nextAimToParam = nextNodeOrNil and nextNodeOrNil.Params.AimTo
+	if mem.Volatile.LastCheckedNode ~= nodeOrNil or mem.Volatile.LastCheckedNextNode ~= nextNodeOrNil then
+		mem.Volatile.LastCheckedNode = nodeOrNil
+		mem.Volatile.LastCheckedNextNode = nextNodeOrNil
+		
+		local currentParams, nextParams
+		if D3bot.UsingSourceNav then
+			currentParams = nodeOrNil and nodeOrNil:GetMetaData().Params
+			nextParams = nextNodeOrNil and nextNodeOrNil:GetMetaData().Params
+		else
+			currentParams = nodeOrNil and nodeOrNil.Params
+			nextParams = nextNodeOrNil and nextNodeOrNil.Params
+		end
+
+		mem.Volatile.DisableDodgingCache = HasSpecialParams(currentParams) or HasSpecialParams(nextParams)
 	end
 
-	local mustAimStraight = (currentAimParam == "Straight" or nextAimToParam == "Straight")
+	local disableDodging = mem.Volatile.DisableDodgingCache
 
-	if mustAimStraight then
-
+	if disableDodging then
 		mem.Volatile.DodgeStrafe = 0
 		mem.Volatile.BackwardUntil = nil
 		mem.Volatile.DuckUntil = nil

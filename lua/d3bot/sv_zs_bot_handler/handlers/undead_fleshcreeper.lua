@@ -118,7 +118,7 @@ local STATE_REPAIRING_NEST = 8
 
 --------------------------------------------------------------------------------
 -- Debug print helper (must be defined before all functions that use it)
-local DEBUG_FLESHCREEPER = true  
+local DEBUG_FLESHCREEPER = false   
 local DEBUG_STUCK = false
 
 ---Prints debug messages with Flesh Creeper bot identification prefix.
