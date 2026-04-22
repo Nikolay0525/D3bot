@@ -615,7 +615,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			barricadePathDist = D3bot.ZS.GetPathDistance(testPos, barricadePos)
 			
 			if not barricadePathDist or barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE_BARRICADE then
-				return -1000, bestHumanPathDist
+				return -1000, barricadePathDist
 			end
 		else
 			if not bestHumanPathDist or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE_HUMANS then
@@ -832,17 +832,17 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		-- Validate basic requirements (barricadeNearby=true when in barricade mode)
 		local validPos = ValidatePosition(testPos, false, false, allowBarricadeNearby)
 		if validPos then
-			local score, humanPathDist = ScorePosition(validPos, isHidden, isOffHumanPath)
+			local score, targetPathDist = ScorePosition(validPos, isHidden, isOffHumanPath)
 			if score > -500 then
 				table.insert(scoredCandidates, {
 					pos = validPos,
 					score = score,
-					humanPathDist = humanPathDist,
+					targetPathDist = targetPathDist,
 					isHidden = isHidden,
 					isOffHumanPath = isOffHumanPath
 				})
 			else
-				DebugPrint("FindBuildPosition: node thrown away score are too low <-500 (", math.floor(humanPathDist), ")")
+				DebugPrint("FindBuildPosition: node thrown away score are too low <-500 (", math.floor(targetPathDist), ")")
 			end
 		end
 	end
