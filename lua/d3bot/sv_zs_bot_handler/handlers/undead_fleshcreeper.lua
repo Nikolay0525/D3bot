@@ -609,10 +609,14 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 			end
 		end
 
-		local barricadePathDist = nil
+		local barricadePathDist = math.huge
 
 		if barricadePos then
-			barricadePathDist = D3bot.ZS.GetPathDistance(testPos, barricadePos)
+			local barricadePath = D3bot.ZS.GetPathDistance(testPos, barricadePos)
+
+			if barricadePath then
+				barricadePathDist = barricadePath
+			end
 			
 			if not barricadePathDist or barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE_BARRICADE then
 				return -1000, barricadePathDist
