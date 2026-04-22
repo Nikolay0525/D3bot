@@ -358,7 +358,7 @@ HANDLER.RandomSecondaryAttack = {
 	["Frigid Ghoul"] = {MinTime = 5, MaxTime = 7},
 	["Frigid Revenant"] = {MinTime = 5, MaxTime = 7},
 	["Vile Bloated Zombie"] = {MinTime = 5, MaxTime = 7},
-	["Poison Zombie"] = {MinTime = 5, MaxTime = 7}, -- Slows them too much
+	["Poison Zombie"] = {MinTime = 5, MaxTime = 7},
 	["Wild Poison Zombie"] = {MinTime = 5, MaxTime = 7},
 	["Charger"] = {MinTime = 3, MaxTime = 5}
 }
@@ -370,9 +370,8 @@ HANDLER.SecondaryBallistics = {
     ["Frigid Ghoul"] = 0.15,
     ["Frigid Revenant"] = 0.15,
     ["Vile Bloated Zombie"] = 0.3,
-    ["Poison Zombie"] = 0.4, -- Важкий снаряд, треба кидати вище
+    ["Poison Zombie"] = 0.4,
     ["Wild Poison Zombie"] = 0.4
-    -- Charger'а сюди не пишемо, бо він не кидає снаряди
 }
 
 HANDLER.Fallback = true
@@ -550,39 +549,35 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 	end
 
 	-- ====================================================================
-    -- РОЗУМНЕ ВИКОРИСТАННЯ ВТОРИННОЇ АТАКИ (Отрута / Сніжки / Ривок)
+    -- Mechanic of throwing secondary attack in players
     -- ====================================================================
     local zombieClassName = GAMEMODE.ZombieClasses[bot:GetZombieClass()].Name
     local secAttack = HANDLER.RandomSecondaryAttack[zombieClassName]
     
     if secAttack then
-        -- 1. Ініціалізація таймера ПРИ СПАВНІ
         if not mem.Volatile.NextThrowPoisonTime then
             mem.Volatile.NextThrowPoisonTime = CurTime() + secAttack.MinTime + (math.random() * (secAttack.MaxTime - secAttack.MinTime))
         end
 
         -- ==========================================================
-        -- А. УНІКАЛЬНА ЛОГІКА ДЛЯ CHARGER (Ривок / Спринт)
+        -- Charger unique logic
         -- ==========================================================
         if zombieClassName == "Charger" then
-            -- СТАН РИВКУ: Якщо ми вже в ривку - тримаємо ціль і скасовуємо всі ухиляння!
             if mem.Volatile.ChargeUntil and CurTime() < mem.Volatile.ChargeUntil then
                 if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() and mem.TgtOrNil:Alive() then
                     local target = mem.TgtOrNil
                     local botPos = bot:GetPos()
                     local targetPos = target:GetPos()
                     
-                    -- Жорстко ведемо ціль по горизонталі весь час ривку
                     local chargeDir = targetPos - botPos
                     chargeDir.z = 0
                     aimAngle = chargeDir:Angle()
                     
                     actions = actions or {}
-                    actions.Attack2 = true -- Тримаємо кнопку ривку активною
-                    actions.MoveForward = true -- Примусово тиснемо вперед
+                    actions.Attack2 = true
+                    actions.MoveForward = true
                 end
             else
-                -- ПРИЙНЯТТЯ РІШЕННЯ НА РИВОК
                 if CurTime() >= mem.Volatile.NextThrowPoisonTime then
                     local didCharge = false
                     
@@ -592,7 +587,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                         local targetPos = target:GetPos()
                         local distSqr = botPos:DistToSqr(targetPos)
 
-                        -- Ривок має сенс робити на середній дистанції (від 150 до 800 юнітів)
                         if distSqr > 22500 and distSqr < 640000 then
                             local tr = util.TraceLine({
                                 start = bot:EyePos(),
@@ -604,8 +598,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                             if not tr.Hit then 
                                 didCharge = true
                                 
-                                -- Задаємо тривалість стану ривку (наприклад, 1.5 секунди)
-                                -- Протягом цього часу бот ігноруватиме стрейфи і летітиме прямо
                                 mem.Volatile.ChargeUntil = CurTime() + 1.5
                                 
                                 if DEBUG_BEHAVIOR then
@@ -624,13 +616,11 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
             end
 
         -- ==========================================================
-        -- Б. БАЛІСТИЧНА ЛОГІКА ДЛЯ МЕТАЛЬНИКІВ (Отрута / М'ясо)
+        -- Using of ballistic for projectiles thrown from SecondaryAttack
         -- ==========================================================
         else
-            -- Зчитуємо множник балістики для конкретного зомбі (за замовчуванням 0.15)
             local ballisticMult = HANDLER.SecondaryBallistics[zombieClassName] or 0.15
 
-            -- СТАН ЗАМАХУ (Wind-up)
             if mem.Volatile.ThrowWindupUntil and CurTime() < mem.Volatile.ThrowWindupUntil then
                 if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() and mem.TgtOrNil:Alive() then
                     local target = mem.TgtOrNil
@@ -640,7 +630,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                     local throwDir = targetPos - botShootPos
                     local dist = botShootPos:Distance(targetPos)
                     
-                    -- Застосовуємо УНІКАЛЬНУ БАЛІСТИКУ з таблиці
                     throwDir.z = throwDir.z + (dist * ballisticMult) 
                     
                     aimAngle = throwDir:Angle()
@@ -648,7 +637,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
                     actions.Attack2 = true 
                 end
             else
-                -- ПРИЙНЯТТЯ РІШЕННЯ НА КИДОК
                 if CurTime() >= mem.Volatile.NextThrowPoisonTime then
                     local didThrow = false
                     
@@ -686,7 +674,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
             end
         end
     end
-    -- ====================================================================
 
 	-- Giga Gore/Shadow Child: PRIORITIZE throwing babies when at barricades
 	-- Max 5 babies per boss, tracked on the bot
@@ -875,10 +862,33 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		end
 	end
 
-	-- ====================================================================
-	-- СИСТЕМА УХИЛЯННЯ (DODGE/EVADE) - ВОГНЕПАЛ vs БЛИЖНІЙ БІЙ
-	-- ====================================================================
-	if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
+	local nodeOrNil = mem.NodeOrNil
+	local nextNodeOrNil = mem.NextNodeOrNil
+	local currentAimParam, nextAimToParam
+
+	if D3bot.UsingSourceNav then
+		currentAimParam = nodeOrNil and nodeOrNil:GetMetaData().Params.Aim
+		nextAimToParam = nextNodeOrNil and nextNodeOrNil:GetMetaData().Params.AimTo
+	else
+		currentAimParam = nodeOrNil and nodeOrNil.Params.Aim
+		nextAimToParam = nextNodeOrNil and nextNodeOrNil.Params.AimTo
+	end
+
+	local mustAimStraight = (currentAimParam == "Straight" or nextAimToParam == "Straight")
+
+	if mustAimStraight then
+
+		mem.Volatile.DodgeStrafe = 0
+		mem.Volatile.BackwardUntil = nil
+		mem.Volatile.DuckUntil = nil
+		mem.Volatile.DodgeJump = false
+		
+		if DEBUG_STRAFE then
+			print("[D3bot Dodge] " .. bot:Nick() .. " -> Node forces STRAIGHT movement. Dodging logic skipped.")
+		end
+
+	elseif IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
+
 		local target = mem.TgtOrNil
 		local targetPos = target:GetPos()
 		local botPos = bot:GetPos()

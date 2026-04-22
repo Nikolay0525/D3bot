@@ -875,7 +875,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	-- First pass: Find HIDDEN + OFF-PATH positions (safest)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden and candidate.isOffHumanPath then
-			DebugPrint("Found HIDDEN+OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
+			DebugPrint("Found HIDDEN+OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "targetPathDist:", math.floor(candidate.targetPathDist))
 			return ReturnResult(candidate.pos)
 		end
 	end
@@ -883,7 +883,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	-- Second pass: Find HIDDEN positions (still safe)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isHidden then
-			DebugPrint("Found HIDDEN nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
+			DebugPrint("Found HIDDEN nest position:", candidate.pos, "score:", candidate.score, "targetPathDist:", math.floor(candidate.targetPathDist))
 			return ReturnResult(candidate.pos)
 		end
 	end
@@ -891,7 +891,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	-- Third pass: Find OFF-PATH positions (acceptable)
 	for _, candidate in ipairs(scoredCandidates) do
 		if candidate.isOffHumanPath then
-			DebugPrint("Found OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "humanPathDist:", math.floor(candidate.humanPathDist))
+			DebugPrint("Found OFF-PATH nest position:", candidate.pos, "score:", candidate.score, "targetPathDist:", math.floor(candidate.targetPathDist))
 			return ReturnResult(candidate.pos)
 		end
 	end
@@ -899,7 +899,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 	-- Fourth pass: Any valid position with good score
 	if #scoredCandidates > 0 then
 		local best = scoredCandidates[1]
-		DebugPrint("Found nest position (fallback):", best.pos, "score:", best.score, "humanPathDist:", math.floor(best.humanPathDist))
+		DebugPrint("Found nest position (fallback):", best.pos, "score:", best.score, "targetPathDist:", math.floor(best.targetPathDist))
 		return ReturnResult(best.pos)
 	end
 	
