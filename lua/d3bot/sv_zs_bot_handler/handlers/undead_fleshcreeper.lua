@@ -417,7 +417,7 @@ end
 HANDLER.MinNestDistance = 200
 -- When Nest build pos will be thrown in "bin"
 local NEST_TOO_FAR_DISTANCE_HUMANS = 1500 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
-local NEST_TOO_FAR_DISTANCE_BARRICADE = 750 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
+local NEST_TOO_FAR_DISTANCE_BARRICADE = 1000 -- ЧУТЬ БЛИЖЕ К БАРИКАДАМ
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
 ---Priority 1: Near humans by path distance (but hidden from them)
@@ -643,7 +643,7 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 
 			-- Additional bonus for short path to barricade
 			if barricadePathDist and barricadePathDist < 600 then
-				score = score + math.max(0, 100 - barricadePathDist / 6) -- Up to 100 bonus
+				score = score + math.max(0, 200 - barricadePathDist / 6) -- Up to 200 bonus
 			end
 
 			-- Human proximity is secondary when in barricade mode
