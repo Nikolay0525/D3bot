@@ -7,7 +7,7 @@ local DEBUG_NEST_TARGET = false
 -- Debug flag for ambush/flee behavior (set to true to enable [D3bot Behavior] messages)
 local DEBUG_BEHAVIOR = false 
 
-local DEBUG_STRAFE = false    
+local DEBUG_STRAFE = true     
 
 local DEBUG_KEYS = false     
 
@@ -21,17 +21,17 @@ HANDLER.BarricadeAmbushTimeout = 30   -- Seconds before ambush times out and tri
 HANDLER.AmbushSearchDelay = 1         -- Seconds between hiding spot search attempts
 HANDLER.AmbushBarricadeAvoidDist = 300 -- Minimum distance from nailed props for hiding spot
 
--- List of classes allowed to use the retreat-and-heal behavior
-HANDLER.RegenClasses = {
-    ["Zombie"] = true,
-    ["Bloated Zombie"] = true,
-    ["Fresh Dead"] = true,
-    ["Skeleton"] = true
-}
+-- -- List of classes allowed to use the retreat-and-heal behavior
+-- HANDLER.RegenClasses = {
+--     ["Zombie"] = true,
+--     ["Bloated Zombie"] = true,
+--     ["Fresh Dead"] = true,
+--     ["Skeleton"] = true
+-- }
 
-HANDLER.RegenHPThreshold = 0.2 -- 20% HP
-HANDLER.RegenChance = 50       -- 50% chance to trigger
-HANDLER.RegenPlayerDist = 250  -- Stand up if player is this close
+-- HANDLER.RegenHPThreshold = 0.2 -- 20% HP
+-- HANDLER.RegenChance = 50       -- 50% chance to trigger
+-- HANDLER.RegenPlayerDist = 250  -- Stand up if player is this close
 
 --------------------------------------------------------------------------------
 -- Helper: Check if current map is standard ZS (not ZE or Objective)
@@ -933,7 +933,10 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		local isStrafing = mem.Volatile.DodgeStrafe and mem.Volatile.DodgeStrafe ~= 0
 		local isDodging = isBackward or isStrafing
 
-		if distSqr < 250000 and (not facesHindrance or isDodging) then
+		local isAttackingBarricade = facesHindrance and IsValid(mem.BarricadeAttackEntity)
+		local allowBarricadeStrafe = isAttackingBarricade and (distSqr <= 160000)
+
+		if distSqr < 250000 and (not facesHindrance or isDodging or allowBarricadeStrafe) then
 			local wep = target:GetActiveWeapon()
 			if IsValid(wep) then
 				mem.Volatile.NextDodgeTime = mem.Volatile.NextDodgeTime or 0
@@ -953,12 +956,17 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 
 				if isLookingAtBot then
 					local tr = util.TraceLine({
-						start = botPos + Vector(0, 0, 48),    -- Рівень грудей бота
-						endpos = targetPos + Vector(0, 0, 48), -- Рівень грудей гравця
-						filter = {bot, target},               -- Ігноруємо самі модельки гравців
-						mask = MASK_OPAQUE                    -- Промінь зупиняється тільки об глухі стіни та ящики
+						start = botPos + Vector(0, 0, 48),     -- Chest level of the bot
+						endpos = targetPos + Vector(0, 0, 48), -- Chest level of the player
+						-- Use a function to ignore barricades so the bot can "see" through them
+						filter = function(ent)
+							if ent == bot or ent == target then return false end
+							if IsBarricadeEntity(ent) then return false end -- Ignore barricades for visibility
+							return true
+						end,
+						mask = MASK_OPAQUE                     -- Ray stops only on solid walls
 					})
-					isVisible = not tr.Hit -- Якщо промінь НЕ врізався у стіну, значить між нами чисто
+					isVisible = not tr.Hit -- If ray didn't hit a wall (and skipped barricades), path is clear
 				end
 
 
@@ -969,8 +977,15 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 					
 					local wepClass = string.lower(wep:GetClass())
 						
+					if not isLookingAtBot or not isVisible then
+						mem.Volatile.NextDodgeTime = CurTime() + 0.2
+						if DEBUG_STRAFE then
+							local reason = not isLookingAtBot and "Не дивиться" or "За стіною"
+							print("[D3bot Dodge] " .. bot:Nick() .. " -> " .. reason .. "! Пру прямо.")
+						end
+
 					-- ПЕРЕВІРКА НА ЧОРНИЙ СПИСОК
-					if HANDLER.WeaponDodgeBlacklist[wepClass] then
+					elseif HANDLER.WeaponDodgeBlacklist[wepClass] then
 						-- Зброя безпечна, вимикаємо всі ухиляння і премо вперед
 						mem.Volatile.DodgeStrafe = 0
 						mem.Volatile.BackwardUntil = nil
@@ -980,7 +995,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							print("[D3bot Dodge] " .. bot:Nick() .. " -> Ціль з безпечною зброєю ("..wepClass..")! Пру прямо.")
 						end
 
-					elseif isLookingAtBot and isVisible then
+					else
 						local isMelee = false
 						local wepBase = string.lower(wep.Base or "")
 						
@@ -1038,12 +1053,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 							local dir = (mem.Volatile.DodgeStrafe == -1) and "Вліво" or (mem.Volatile.DodgeStrafe == 1) and "Вправо" or "Прямо"
 							local ext = (mem.Volatile.DodgeJump and " + СТРИБОК") or ""
 							print("[D3bot Dodge] " .. bot:Nick() .. " vs " .. tacticName .. " | Рух: " .. dir .. ext)
-						end
-					else
-						mem.Volatile.NextDodgeTime = CurTime() + 0.2
-						if DEBUG_STRAFE then
-							local reason = not isLookingAtBot and "Не дивиться" or "За стіною"
-							print("[D3bot Dodge] " .. bot:Nick() .. " -> " .. reason .. "! Пру прямо.")
 						end
 					end
 				end
