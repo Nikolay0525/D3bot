@@ -5,11 +5,11 @@ local HANDLER = D3bot.Handlers.Undead_Fallback
 local DEBUG_NEST_TARGET = false
 
 -- Debug flag for ambush/flee behavior (set to true to enable [D3bot Behavior] messages)
-local DEBUG_BEHAVIOR = false 
+local DEBUG_BEHAVIOR = false
 
-local DEBUG_STRAFE = true     
+local DEBUG_STRAFE = false
 
-local DEBUG_KEYS = false     
+local DEBUG_KEYS = false
 
 --------------------------------------------------------------------------------
 -- Configuration for Barricade Ambush Behavior

@@ -339,7 +339,7 @@ function D3bot.Basics.WalkAttackAuto(bot, attackWhenCantSee)
 	local targetIsVeryClose = false
 	if attackWhenCantSee and IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() and mem.TgtOrNil:Alive() then
 		local distSqr = bot:GetShootPos():DistToSqr(mem.TgtOrNil:GetShootPos())
-		if distSqr <= math.pow(range - 25, 2) then
+		if distSqr <= math.pow(range, 2) then
 			targetIsVeryClose = true
 		end
 	end
