@@ -355,7 +355,6 @@ function D3bot.Basics.WalkAttackAuto(bot, attackWhenCantSee)
 		end
 	elseif not bot:D3bot_CanSeeTargetCached() and nextNodeOrNil and not targetIsVeryClose then
 		
-		print("I CAN'T SEE YOU")
 		-- Target not visible, walk towards next node.
 		if D3bot.UsingSourceNav then
 			return D3bot.Basics.Walk(bot, nextNodeOrNil:GetCenter(), nil)
@@ -379,7 +378,6 @@ function D3bot.Basics.WalkAttackAuto(bot, attackWhenCantSee)
 
 	if targetIsVeryClose then
 		
-		print("I CAN'T SEE YOU BUT I WILL FUCK YOU")
 		facesTgt = true
 		attackPos = mem.TgtOrNil:EyePos() 
 		movePos = attackPos
@@ -392,14 +390,12 @@ function D3bot.Basics.WalkAttackAuto(bot, attackWhenCantSee)
 		end
 	elseif attackPos and attackPos:DistToSqr(origin) < math.pow(range, 2) then
 		--ClDebugOverlay.Line(GetPlayerByName("МЫКВА"), bot:GetShootPos(), attackPos, 1, Color(255,255,0), false)
-		print("Player in range targeting")
 		-- We are within attack range.
 		facesTgt = true
 		if attackPos.z < bot:GetPos().z + bot:GetViewOffsetDucked().z then
 			actions.Duck = true
 		end
 	elseif mem.BarricadeAttackEntity and mem.BarricadeAttackPos then
-		print("Targeting barricade instead")
 		-- We are not within attack range, but we have a barricade entity to attack.
 		-- So we aim for this one, instead.
 		if mem.BarricadeAttackEntity:IsValid() and mem.BarricadeAttackPos:DistToSqr(origin) < math.pow(range, 2) then
