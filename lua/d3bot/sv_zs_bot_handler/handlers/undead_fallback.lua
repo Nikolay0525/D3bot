@@ -21,6 +21,18 @@ HANDLER.BarricadeAmbushTimeout = 30   -- Seconds before ambush times out and tri
 HANDLER.AmbushSearchDelay = 1         -- Seconds between hiding spot search attempts
 HANDLER.AmbushBarricadeAvoidDist = 300 -- Minimum distance from nailed props for hiding spot
 
+-- List of classes allowed to use the retreat-and-heal behavior
+HANDLER.RegenClasses = {
+    ["Zombie"] = true,
+    ["Bloated Zombie"] = true,
+    ["Fresh Dead"] = true,
+    ["Skeleton"] = true
+}
+
+HANDLER.RegenHPThreshold = 0.2 -- 20% HP
+HANDLER.RegenChance = 50       -- 50% chance to trigger
+HANDLER.RegenPlayerDist = 250  -- Stand up if player is this close
+
 --------------------------------------------------------------------------------
 -- Helper: Check if current map is standard ZS (not ZE or Objective)
 --------------------------------------------------------------------------------
@@ -458,7 +470,7 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 	result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.PounceAuto(bot, false)
 
 	if not result then
-		result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot)
+		result, actions, forwardSpeed, sideSpeed, upSpeed, aimAngle, minorStuck, majorStuck, facesHindrance = D3bot.Basics.WalkAttackAuto(bot, true)
 		if not result then
 			return
 		end

@@ -298,7 +298,8 @@ end
 ---@return boolean minorStuck -- True if the bot seems to be stuck on a ladder or similar.
 ---@return boolean majorStuck -- True if the bot seems to be stuck on props, or runs in circles.
 ---@return boolean facesHindrance -- True if the bot is walking slower than expected.
-function D3bot.Basics.WalkAttackAuto(bot)
+function D3bot.Basics.WalkAttackAuto(bot, attackWhenCantSee)
+	attackWhenCantSee = attackWhenCantSee or false
 	local mem = bot.D3bot_Mem
 
 	if mem.BlockMovementUntil then
@@ -331,6 +332,18 @@ function D3bot.Basics.WalkAttackAuto(bot)
 		shouldClimb = ( nodeOrNil and nodeOrNil.Params.Climbing == "Needed" ) or ( nextNodeOrNil and nextNodeOrNil.Params.Climbing == "Needed" )
 	end
 
+	---@type GWeapon|table
+	local weapon = bot:GetActiveWeapon()
+	local range = (weapon and weapon.MeleeReach or 75) + 25 -- Either MeleeReach + 25, or 100.
+
+	local targetIsVeryClose = false
+	if attackWhenCantSee and IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() and mem.TgtOrNil:Alive() then
+		local distSqr = bot:GetShootPos():DistToSqr(mem.TgtOrNil:GetShootPos())
+		if distSqr <= math.pow(range - 25, 2) then
+			targetIsVeryClose = true
+		end
+	end
+
 	-- Fall back to normal walking behavior if possible.
 	if shouldClimb and nextNodeOrNil then
 		-- Use walk handler for climing.
@@ -340,7 +353,9 @@ function D3bot.Basics.WalkAttackAuto(bot)
 		else
 			return D3bot.Basics.Walk(bot, nextNodeOrNil.Pos, nil)
 		end
-	elseif not bot:D3bot_CanSeeTargetCached() and nextNodeOrNil then
+	elseif not bot:D3bot_CanSeeTargetCached() and nextNodeOrNil and not targetIsVeryClose then
+		
+		print("I CAN'T SEE YOU")
 		-- Target not visible, walk towards next node.
 		if D3bot.UsingSourceNav then
 			return D3bot.Basics.Walk(bot, nextNodeOrNil:GetCenter(), nil)
@@ -355,10 +370,6 @@ function D3bot.Basics.WalkAttackAuto(bot)
 		return D3bot.Basics.Walk(bot, mem.PosTgtOrNil, nil, true, mem.PosTgtProximity)
 	end
 
-	---@type GWeapon|table
-	local weapon = bot:GetActiveWeapon()
-	local range = (weapon and weapon.MeleeReach or 75) + 25 -- Either MeleeReach + 25, or 100.
-
 	-- We don't have a case that can be handled by the basic walk handler.
 	-- So we just attack something directly.
 	local facesTgt = false -- True if bot is close enough for attacks.
@@ -366,15 +377,29 @@ function D3bot.Basics.WalkAttackAuto(bot)
 	local attackPos = bot:D3bot_GetAttackPosOrNilFuture(nil, math.Rand(0, D3bot.BotAimPosVelocityOffshoot)) -- Target attack position, for aiming.
 	local movePos = attackPos or bot:GetPos() -- Target movement position.
 
-	if attackPos and attackPos:DistToSqr(origin) < math.pow(range, 2) then
-		--ClDebugOverlay.Line(GetPlayerByName("D3"), bot:GetShootPos(), attackPos, 1, Color(255,255,0), false)
-
+	if targetIsVeryClose then
+		
+		print("I CAN'T SEE YOU BUT I WILL FUCK YOU")
+		facesTgt = true
+		attackPos = mem.TgtOrNil:EyePos() 
+		movePos = attackPos
+		
+		-- Забуваємо барикаду, щоб не перемикатись на неї назад
+		mem.BarricadeAttackPos, mem.BarricadeAttackEntity = nil, nil
+		
+		if attackPos.z < bot:GetPos().z + bot:GetViewOffsetDucked().z then
+			actions.Duck = true
+		end
+	elseif attackPos and attackPos:DistToSqr(origin) < math.pow(range, 2) then
+		--ClDebugOverlay.Line(GetPlayerByName("МЫКВА"), bot:GetShootPos(), attackPos, 1, Color(255,255,0), false)
+		print("Player in range targeting")
 		-- We are within attack range.
 		facesTgt = true
 		if attackPos.z < bot:GetPos().z + bot:GetViewOffsetDucked().z then
 			actions.Duck = true
 		end
 	elseif mem.BarricadeAttackEntity and mem.BarricadeAttackPos then
+		print("Targeting barricade instead")
 		-- We are not within attack range, but we have a barricade entity to attack.
 		-- So we aim for this one, instead.
 		if mem.BarricadeAttackEntity:IsValid() and mem.BarricadeAttackPos:DistToSqr(origin) < math.pow(range, 2) then
