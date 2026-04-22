@@ -415,8 +415,9 @@ end
 
 -- Minimum distance from existing nests
 HANDLER.MinNestDistance = 200
--- When Nest build pos will be thown in "bin"
-local NEST_TOO_FAR_DISTANCE = 1500 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
+-- When Nest build pos will be thrown in "bin"
+local NEST_TOO_FAR_DISTANCE_HUMANS = 1500 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
+local NEST_TOO_FAR_DISTANCE_BARRICADE = 750 -- ЧТОБЫ НЕ ТУПИЛ СТОЛЕТ
 
 ---Finds a good position to build nest using navmesh PATH DISTANCE.
 ---Priority 1: Near humans by path distance (but hidden from them)
@@ -613,11 +614,11 @@ local function FindBuildPosition(bot, targetSigil, blockingBarricade)
 		if barricadePos then
 			barricadePathDist = D3bot.ZS.GetPathDistance(testPos, barricadePos)
 			
-			if not barricadePathDist or barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE then
+			if not barricadePathDist or barricadePathDist == math.huge or barricadePathDist > NEST_TOO_FAR_DISTANCE_BARRICADE then
 				return -1000, bestHumanPathDist
 			end
 		else
-			if not bestHumanPathDist or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE then
+			if not bestHumanPathDist or bestHumanPathDist == math.huge or bestHumanPathDist > NEST_TOO_FAR_DISTANCE_HUMANS then
 				return -1000, bestHumanPathDist
 			end
 		end
@@ -1212,13 +1213,16 @@ local function GetFurthestInvalidNest()
         if IsValid(nest) and nest.GetNestBuilt and nest:GetNestBuilt() then
             local nestPos = nest:GetPos()
             local closestTargetDist = math.huge
+			local nestTooFar = nil
 
             if IsValid(siegeTarget) then
+				nestTooFar = NEST_TOO_FAR_DISTANCE_BARRICADE
 				closestTargetDist = D3bot.ZS.GetPathDistance(nestPos, siegeTarget:GetPos())
 				if not closestTargetDist or closestTargetDist == math.huge then
 					closestTargetDist = nestPos:Distance(siegeTarget:GetPos()) * 1.1
 				end
             else
+				nestTooFar = NEST_TOO_FAR_DISTANCE_HUMANS
                 for _, human in ipairs(humans) do
                     if IsValid(human) and human:Alive() and D3bot.ZS.IsValidHumanTarget(human) then
                         local dist = D3bot.ZS.GetPathDistance(nestPos, human:GetPos())
@@ -1234,7 +1238,7 @@ local function GetFurthestInvalidNest()
                 end
             end
 
-            if closestTargetDist >= NEST_TOO_FAR_DISTANCE and closestTargetDist > maxDist then
+            if closestTargetDist >= nestTooFar and closestTargetDist > maxDist then
                 maxDist = closestTargetDist
                 furthestNest = nest
             end
