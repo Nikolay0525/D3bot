@@ -1596,7 +1596,7 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
     end
 
 	mem.TgtOrNil = attacker
-	bot:Say("Ouch! Fuck you "..attacker:GetName().."! I'm gonna kill you!")
+	--bot:Say("Ouch! Fuck you "..attacker:GetName().."! I'm gonna kill you!")
 end
 
 ---Called when the bot damages something.
@@ -1625,7 +1625,7 @@ end
 -- Custom functions and settings --
 -----------------------------------
 
-local potTargetEntClasses = {"prop_*turret", "prop_arsenalcrate", "prop_manhack*", "prop_obj_sigil"}
+local potTargetEntClasses = {"prop_*turret", "prop_arsenalcrate", "prop_ressuplybox", "prop_remantler", "prop_manhack*", "prop_obj_sigil"}
 local potEntTargets = nil
 
 ---Returns whether a target is valid.

@@ -121,8 +121,28 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
     local attacker = dmg:GetAttacker()
     if not HANDLER.CanBeTgt(bot, attacker) then return end
     local mem = bot.D3bot_Mem
-    if IsValid(mem.TgtOrNil) and mem.TgtOrNil:GetPos():DistToSqr(bot:GetPos()) <= math.pow(HANDLER.BotTgtFixationDistMin, 2) then return end
+    if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
+        local currentDist = bot:GetPos():DistToSqr(mem.TgtOrNil:GetPos())
+        local newDist = bot:GetPos():DistToSqr(attacker:GetPos())
+        
+        local currentHp = 99999
+        local newHp = 99999
+
+        if type(mem.TgtOrNil.Health) == "function" then 
+            currentHp = mem.TgtOrNil:Health() 
+        end
+
+        if type(attacker.Health) == "function" then 
+            newHp = attacker:Health() 
+        end
+
+        -- Only switch if current target is far and new one is very close
+        if currentDist <= math.pow(HANDLER.BotTgtFixationDistMin, 2) and newDist > currentDist and newHp > currentHp then 
+            return
+        end
+    end
     mem.TgtOrNil = attacker
+	--bot:Say("Ouch! Fuck you "..attacker:GetName().."! I'm gonna kill you!")
 end
 
 function HANDLER.OnDoDamageFunction(bot, ent, dmg)
@@ -139,7 +159,7 @@ end
 -- Custom functions and settings --
 -----------------------------------
 
-local potTargetEntClasses = {"prop_*turret", "prop_arsenalcrate", "prop_manhack*", "prop_obj_sigil"}
+local potTargetEntClasses = {"prop_*turret", "prop_arsenalcrate", "prop_ressuplybox", "prop_remantler", "prop_manhack*", "prop_obj_sigil"}
 local potEntTargets = nil
 
 ---Returns whether a target is valid.
@@ -176,7 +196,46 @@ function HANDLER.RerollTarget(bot)
     
     potEntTargets = D3bot.GetEntsOfClss(potTargetEntClasses)
     local potTargets = table.Add(players, potEntTargets)
-    bot:D3bot_SetTgtOrNil(table.Random(potTargets), false, nil)
+
+    local structuredTargets = {}
+    
+    for _, target in ipairs(potTargets) do
+        if IsValid(target) then
+            -- Get HP. Assign a large number if the entity lacks a standard health value
+            local hp = 99999
+            if type(target.Health) == "function" then 
+                hp = target:Health() 
+            end
+            
+            -- Fallback for specific ZS entities (like barricades or sigils)
+            if type(target.GetObjectHealth) == "function" then 
+                hp = target:GetObjectHealth() 
+            end
+            
+            -- Get name (Nick for players, Class name for entities)
+            local name = target:IsPlayer() and target:Nick() or target:GetClass()
+            
+            table.insert(structuredTargets, {
+                entity = target,
+                name = name,
+                hp = hp
+            })
+        end
+    end
+    
+    -- Reset target if there are no valid targets available
+    if #structuredTargets == 0 then
+        bot:D3bot_SetTgtOrNil(nil, false, nil)
+        return
+    end
+
+    -- Sort targets by HP (from lowest to highest)
+    table.sort(structuredTargets, function(a, b)
+        return a.hp < b.hp
+    end)
+    
+    -- Select the first target from the sorted list (the one with the lowest HP)
+    bot:D3bot_SetTgtOrNil(structuredTargets[1].entity, false, nil)
 end
 
 return HANDLER
