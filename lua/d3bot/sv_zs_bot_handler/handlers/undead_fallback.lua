@@ -1549,23 +1549,26 @@ function HANDLER.ThinkFunction(bot)
 			for k, v in ipairs(targets) do
 				if IsValid(v) and HANDLER.CanBeTgt(bot, v) then
 					local distToNewSqr = botPos:DistToSqr(v:GetPos())
-					
-					if not isFixed then
-						-- OLD LOGIC: If not fixed, grab anyone within 500 units
-						if distToNewSqr < 500 * 500 and bot:D3bot_CanSeeTarget(nil, v) then
-                            bot:D3bot_SetTgtOrNil(v, false, nil)
-                            mem.nextUpdateSurroundingPlayers = CurTime() + 5
-                            break
-                        end
-					else
-						-- NEW LOGIC: We ARE fixed, but this new guy is VERY close (< 150 units) AND closer than our current target
-						if v ~= currentTarget and distToNewSqr < distToCurrentSqr then
-							if bot:D3bot_CanSeeTarget(nil, v, true) then -- ignoreBarricades = true
-                                bot:D3bot_SetTgtOrNil(v, false, nil)
-                                --bot:D3bot_UpdatePath(nil, nil)
-                                mem.nextUpdateSurroundingPlayers = CurTime() + 5
-                                break
-                            end
+					if v ~= currentTarget and distToNewSqr < distToCurrentSqr then
+						if not isFixed then
+							-- OLD LOGIC: If not fixed, grab anyone within 500 units
+							if distToNewSqr < 500 * 500 and bot:D3bot_CanSeeTarget(nil, v, true) then
+								bot:D3bot_SetTgtOrNil(v, false, nil)
+								mem.nextUpdateSurroundingPlayers = CurTime() + 5
+								bot:Say("I am not fixed retargeting on " .. v:Name())
+								break
+							end
+						else
+							-- NEW LOGIC: We ARE fixed, but this new guy is VERY close (< 150 units) AND closer than our current target
+							if v ~= currentTarget and distToNewSqr < distToCurrentSqr then
+								if bot:D3bot_CanSeeTarget(nil, v, true) then -- ignoreBarricades = true
+									bot:D3bot_SetTgtOrNil(v, false, nil)
+									--bot:D3bot_UpdatePath(nil, nil)
+									mem.nextUpdateSurroundingPlayers = CurTime() + 5
+									bot:Say("Retargeting on " .. v:Name())
+									break
+								end
+							end
 						end
 					end
 				end
