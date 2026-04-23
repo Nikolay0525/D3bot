@@ -1583,10 +1583,20 @@ function HANDLER.OnTakeDamageFunction(bot, dmg)
 
 	-- Don't change target if we have a locked nest spawn target
 	if mem.Volatile.NestSpawnTargetLockTime and mem.Volatile.NestSpawnTargetLockTime > CurTime() then return end
+    
+    -- If already fixed on a player, check if the new attacker is significantly closer
+    if IsValid(mem.TgtOrNil) and mem.TgtOrNil:IsPlayer() then
+        local currentDist = bot:GetPos():DistToSqr(mem.TgtOrNil:GetPos())
+        local newDist = bot:GetPos():DistToSqr(attacker:GetPos())
+        
+        -- Only switch if current target is far and new one is very close
+        if currentDist <= math.pow(HANDLER.BotTgtFixationDistMin, 2) and newDist > currentDist then 
+            return 
+        end
+    end
 
-	if IsValid(mem.TgtOrNil) and mem.TgtOrNil:GetPos():DistToSqr(bot:GetPos()) <= math.pow(HANDLER.BotTgtFixationDistMin, 2) then return end
 	mem.TgtOrNil = attacker
-	--bot:Say("Ouch! Fuck you "..attacker:GetName().."! I'm gonna kill you!")
+	bot:Say("Ouch! Fuck you "..attacker:GetName().."! I'm gonna kill you!")
 end
 
 ---Called when the bot damages something.
