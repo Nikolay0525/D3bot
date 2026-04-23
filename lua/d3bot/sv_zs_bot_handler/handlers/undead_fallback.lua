@@ -1534,18 +1534,43 @@ function HANDLER.ThinkFunction(bot)
 	-- Only update surrounding players target if we don't have a locked nest spawn target
 	if not hasLockedNestTarget then
 		if mem.nextUpdateSurroundingPlayers and mem.nextUpdateSurroundingPlayers < CurTime() or not mem.nextUpdateSurroundingPlayers then
-			if not mem.TgtOrNil or IsValid(mem.TgtOrNil) and mem.TgtOrNil:GetPos():Distance(botPos) > HANDLER.BotTgtFixationDistMin then
-				mem.nextUpdateSurroundingPlayers = CurTime() + 0.9 + math.random() * 0.2
-				local targets = player.GetAll() -- TODO: Filter targets before sorting
-				table.sort(targets, function(a, b) return botPos:DistToSqr(a:GetPos()) < botPos:DistToSqr(b:GetPos()) end)
-				for k, v in ipairs(targets) do
-					if IsValid(v) and botPos:DistToSqr(v:GetPos()) < 500*500 and HANDLER.CanBeTgt(bot, v) and bot:D3bot_CanSeeTarget(nil, v) then
-						bot:D3bot_SetTgtOrNil(v, false, nil)
-						mem.nextUpdateSurroundingPlayers = CurTime() + 5
-						break
+			mem.nextUpdateSurroundingPlayers = CurTime() + 0.9 + math.random() * 0.2
+			
+			local currentTarget = mem.TgtOrNil
+			local hasValidTarget = IsValid(currentTarget)
+			local distToCurrentSqr = hasValidTarget and botPos:DistToSqr(currentTarget:GetPos()) or math.huge
+			
+			-- Check if bot is "fixed" on current target (distance < 250)
+			local isFixed = hasValidTarget and distToCurrentSqr <= math.pow(HANDLER.BotTgtFixationDistMin, 2)
+
+			local targets = player.GetAll()
+			table.sort(targets, function(a, b) return botPos:DistToSqr(a:GetPos()) < botPos:DistToSqr(b:GetPos()) end)
+			
+			for k, v in ipairs(targets) do
+				if IsValid(v) and HANDLER.CanBeTgt(bot, v) then
+					local distToNewSqr = botPos:DistToSqr(v:GetPos())
+					
+					if not isFixed then
+						-- OLD LOGIC: If not fixed, grab anyone within 500 units
+						if distToNewSqr < 500 * 500 and bot:D3bot_CanSeeTarget(nil, v) then
+                            bot:D3bot_SetTgtOrNil(v, false, nil)
+                            mem.nextUpdateSurroundingPlayers = CurTime() + 5
+                            break
+                        end
+					else
+						-- NEW LOGIC: We ARE fixed, but this new guy is VERY close (< 150 units) AND closer than our current target
+						if v ~= currentTarget and distToNewSqr < distToCurrentSqr then
+							if bot:D3bot_CanSeeTarget(nil, v, true) then -- ignoreBarricades = true
+                                bot:D3bot_SetTgtOrNil(v, false, nil)
+                                --bot:D3bot_UpdatePath(nil, nil)
+                                mem.nextUpdateSurroundingPlayers = CurTime() + 5
+                                break
+                            end
+						end
 					end
-					if k > 3 then break end
 				end
+				-- Only check the 3 closest players to save CPU performance
+				if k > 3 then break end
 			end
 		end
 	end

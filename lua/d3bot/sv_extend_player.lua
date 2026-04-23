@@ -81,18 +81,21 @@ function meta:D3bot_CanPounceToPos(pos)
 	return resultTrajectories
 end
 
-function meta:D3bot_CanSeeTargetCached(fraction, target)
+function meta:D3bot_CanSeeTargetCached(fraction, target, ignoreBarricades)
+	ignoreBarricades = ignoreBarricades or false
 	local mem = self.D3bot_Mem
 	if not mem then return end
 	if not mem.CanSeeTargetCache or mem.CanSeeTargetCache.ValidUntil < CurTime() then
 		mem.CanSeeTargetCache = {}
 		mem.CanSeeTargetCache.ValidUntil = CurTime() + 0.9 + math.random() * 0.2 -- Invalidate after a second (With some jitter)
-		mem.CanSeeTargetCache.Result = self:D3bot_CanSeeTarget(fraction, target)
+		mem.CanSeeTargetCache.IgnoreBarricades = ignoreBarricades
+		mem.CanSeeTargetCache.Result = self:D3bot_CanSeeTarget(fraction, target, ignoreBarricades)
 	end
 	return mem.CanSeeTargetCache.Result
 end
 
-function meta:D3bot_CanSeeTarget(fraction, target)
+function meta:D3bot_CanSeeTarget(fraction, target, ignoreBarricades)
+	ignoreBarricades = ignoreBarricades or false
 	local attackPos = self:D3bot_GetAttackPosOrNil(fraction, target)
 	if not attackPos then return false end
 	local mem = self.D3bot_Mem
@@ -101,6 +104,20 @@ function meta:D3bot_CanSeeTarget(fraction, target)
 	tr.start = self:EyePos()
 	tr.endpos = attackPos
 	tr.filter = player.GetAll()
+
+	if ignoreBarricades then
+        tr.filter = function(ent)
+            if ent:IsPlayer() then return false end -- Ignore players (pass through)
+            if ent:D3bot_IsBarricade() then return false end -- Ignore barricades (pass through)
+			
+			print("Hit everything else ignoring barricade")
+            return true -- Hit everything else (walls, non-nailed props)
+        end
+    else
+        -- Standard behavior
+        tr.filter = player.GetAll()
+    end
+
 	return attackPos and not util.TraceHull(tr).Hit
 end
 
