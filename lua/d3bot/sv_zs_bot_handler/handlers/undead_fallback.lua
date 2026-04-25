@@ -577,13 +577,34 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 		end
 	end
 
+	local nodeOrNil = mem.NodeOrNil
+	local nextNodeOrNil = mem.NextNodeOrNil
+
+	if mem.Volatile.LastCheckedNode ~= nodeOrNil or mem.Volatile.LastCheckedNextNode ~= nextNodeOrNil then
+		mem.Volatile.LastCheckedNode = nodeOrNil
+		mem.Volatile.LastCheckedNextNode = nextNodeOrNil
+		
+		local currentParams, nextParams
+		if D3bot.UsingSourceNav then
+			currentParams = nodeOrNil and nodeOrNil:GetMetaData().Params
+			nextParams = nextNodeOrNil and nextNodeOrNil:GetMetaData().Params
+		else
+			currentParams = nodeOrNil and nodeOrNil.Params
+			nextParams = nextNodeOrNil and nextNodeOrNil.Params
+		end
+
+		mem.Volatile.DisableDodgingCache = HasSpecialParams(currentParams) or HasSpecialParams(nextParams)
+	end
+
+	local disableDodging = mem.Volatile.DisableDodgingCache
+
 	-- ====================================================================
     -- Mechanic of throwing secondary attack in players
     -- ====================================================================
     local zombieClassName = GAMEMODE.ZombieClasses[bot:GetZombieClass()].Name
     local secAttack = HANDLER.RandomSecondaryAttack[zombieClassName]
     
-    if secAttack then
+    if secAttack and not disableDodging then
         if not mem.Volatile.NextThrowPoisonTime then
             mem.Volatile.NextThrowPoisonTime = CurTime() + secAttack.MinTime + (math.random() * (secAttack.MaxTime - secAttack.MinTime))
         end
@@ -890,27 +911,6 @@ function HANDLER.UpdateBotCmdFunction(bot, cmd)
 			end
 		end
 	end
-
-	local nodeOrNil = mem.NodeOrNil
-	local nextNodeOrNil = mem.NextNodeOrNil
-
-	if mem.Volatile.LastCheckedNode ~= nodeOrNil or mem.Volatile.LastCheckedNextNode ~= nextNodeOrNil then
-		mem.Volatile.LastCheckedNode = nodeOrNil
-		mem.Volatile.LastCheckedNextNode = nextNodeOrNil
-		
-		local currentParams, nextParams
-		if D3bot.UsingSourceNav then
-			currentParams = nodeOrNil and nodeOrNil:GetMetaData().Params
-			nextParams = nextNodeOrNil and nextNodeOrNil:GetMetaData().Params
-		else
-			currentParams = nodeOrNil and nodeOrNil.Params
-			nextParams = nextNodeOrNil and nextNodeOrNil.Params
-		end
-
-		mem.Volatile.DisableDodgingCache = HasSpecialParams(currentParams) or HasSpecialParams(nextParams)
-	end
-
-	local disableDodging = mem.Volatile.DisableDodgingCache
 
 	if disableDodging then
 		mem.Volatile.DodgeStrafe = 0
@@ -1555,7 +1555,7 @@ function HANDLER.ThinkFunction(bot)
 							if distToNewSqr < 500 * 500 and bot:D3bot_CanSeeTarget(nil, v, true) then
 								bot:D3bot_SetTgtOrNil(v, false, nil)
 								mem.nextUpdateSurroundingPlayers = CurTime() + 5
-								bot:Say("I am not fixed retargeting on " .. v:Name())
+								--bot:Say("I am not fixed retargeting on " .. v:Name())
 								break
 							end
 						else
@@ -1565,7 +1565,7 @@ function HANDLER.ThinkFunction(bot)
 									bot:D3bot_SetTgtOrNil(v, false, nil)
 									--bot:D3bot_UpdatePath(nil, nil)
 									mem.nextUpdateSurroundingPlayers = CurTime() + 5
-									bot:Say("Retargeting on " .. v:Name())
+									--bot:Say("Retargeting on " .. v:Name())
 									break
 								end
 							end

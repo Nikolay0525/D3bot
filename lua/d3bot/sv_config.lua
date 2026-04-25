@@ -34,13 +34,13 @@ D3bot.ZombiesPerPlayer = 2			-- Number of bot zombies per player.
 D3bot.ZombiesPerPlayerMax = 1000			-- Limits amount of zombies to this zombie/player ratio. (Not including ZombiesCountAddition)
 D3bot.ZombiesPerPlayerWave = 0			-- Number of additional bot zombies every wave for every player on the server.
 D3bot.ZombiesPerMinute = 0				-- Number of additional bot zombies every minute.
-D3bot.ZombiesPerWave = 0				-- Number of additional bot zombies every wave.
+D3bot.ZombiesPerWave = 1				-- Number of additional bot zombies every wave.
 D3bot.ZombiesCountAddition = 0			-- Number of additional bot zombies.
 D3bot.SurvivorsPerPlayer = 0 --1.2		-- Survivor bots per total player (non bot) amount. They will only spawn pre round.
 D3bot.SurvivorCountAddition = 2			-- BotMod for survivor bots.
 
 -- Survivor (human) bots are currently not production ready.
-D3bot.SurvivorsEnabled = true          			-- If true, survivor bots are allowed to exists by spawning at the beginning of a round (See SurvivorsPerPlayer and SurvivorCountAddition parameters) or by redeeming.
+D3bot.SurvivorsEnabled = false             			-- If true, survivor bots are allowed to exists by spawning at the beginning of a round (See SurvivorsPerPlayer and SurvivorCountAddition parameters) or by redeeming.
 
 D3bot.IsSelfRedeemEnabled = true 		-- Enable or disable the !human command.
 D3bot.SelfRedeemWaveMax = 6				-- The maximum wave a player can use !human. (Setting it to 2 would allow the players to redeem in the first and second wave)

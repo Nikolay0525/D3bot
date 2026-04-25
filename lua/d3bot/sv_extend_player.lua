@@ -110,7 +110,6 @@ function meta:D3bot_CanSeeTarget(fraction, target, ignoreBarricades)
             if ent:IsPlayer() then return false end -- Ignore players (pass through)
             if ent:D3bot_IsBarricade() then return false end -- Ignore barricades (pass through)
 			
-			print("Hit everything else ignoring barricade")
             return true -- Hit everything else (walls, non-nailed props)
         end
     else
