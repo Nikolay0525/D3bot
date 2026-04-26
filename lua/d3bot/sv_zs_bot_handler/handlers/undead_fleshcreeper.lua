@@ -19,6 +19,7 @@ print("[D3bot] Loading undead_fleshcreeper.lua handler...")
 --   - Back off from humans instead of sigils when repositioning
 -- The IsSigilCorrupted() wrapper safely handles sigils without the GetSigilCorrupted method.
 
+D3bot.ZS = D3bot.ZS or {}
 D3bot.Handlers.Undead_Fleshcreeper = D3bot.Handlers.Undead_Fleshcreeper or {}
 local HANDLER = D3bot.Handlers.Undead_Fleshcreeper
 
@@ -2375,6 +2376,19 @@ end
 ---@param bot GPlayer The bot player entity
 local function ThinkFunction_Coroutine(bot)
 	local mem = bot.D3bot_Mem
+
+	if not D3bot.ZS.FLESH_CREEPER_ENABLED then
+		DebugPrint("Flesh creeper disabled! Changing class.")
+		
+		local attackClassIndex = D3bot.ZS.GetSmartClassIndex(bot)
+		if attackClassIndex then
+			bot.DeathClass = attackClassIndex
+			--ClearStuckDetection(mem)
+			bot:Kill()
+			return
+		end
+	end
+
 	mem.Volatile.FleshcreeperState = mem.Volatile.FleshcreeperState or STATE_FINDING_SIGIL
 
 	-- Throttle thinking
@@ -2413,6 +2427,7 @@ local function ThinkFunction_Coroutine(bot)
 			local attackClassIndex = D3bot.ZS.GetSmartClassIndex(bot)
 			if attackClassIndex then
 				bot.DeathClass = attackClassIndex
+				--ClearStuckDetection(mem)
 				bot:Kill()
 				return
 			end
@@ -2527,6 +2542,7 @@ function HANDLER.OnDeathFunction(bot)
 	DebugPrint("OnDeathFunction called - bot died")
 
 	local mem = bot.D3bot_Mem
+
 	if mem then
 		-- OPTION 3: Track deaths while moving to build - escalating avoidance
 		-- If killed while trying to reach build position, increment death counter

@@ -8,9 +8,10 @@ D3bot.ZS.BotStats = D3bot.ZS.BotStats or {}
 D3bot.ZS.DeathLog = D3bot.ZS.DeathLog or {}
 
 -- Прапорець для увімкнення/вимкнення дебагу у консолі
-D3bot.ZS.DebugSmartSpawn = false 
+D3bot.ZS.DebugSmartSpawn = false
 D3bot.ZS.DebugSoloScanner = false
 
+D3bot.ZS.FLESH_CREEPER_ENABLED = true 
 
 -- Локальна функція для виводу логів
 local function DebugPrint(...)
@@ -364,7 +365,7 @@ function D3bot.ZS.GetSmartClassIndex(bot)
     local nd = D3bot.ZS.NestData
     local canCreeper = D3bot.ZS.CanBecomeFleshCreeper and D3bot.ZS.CanBecomeFleshCreeper()
     
-    if nd and (nd.count < 2 or nd.far or nd.repair) and canCreeper and math.random() <= 0.75 then
+    if D3bot.ZS.FLESH_CREEPER_ENABLED and nd and (nd.count < 2 or nd.far or nd.repair) and canCreeper and math.random() <= 0.75 then
         local creeperIndex
         for _, zc in pairs(GAMEMODE.ZombieClasses) do
             if zc.Name == "Flesh Creeper" then
