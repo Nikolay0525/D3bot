@@ -11,7 +11,7 @@ D3bot.ZS.DeathLog = D3bot.ZS.DeathLog or {}
 D3bot.ZS.DebugSmartSpawn = false
 D3bot.ZS.DebugSoloScanner = false
 
-D3bot.ZS.FLESH_CREEPER_ENABLED = true 
+D3bot.ZS.FLESH_CREEPER_ENABLED = false  
 
 -- Локальна функція для виводу логів
 local function DebugPrint(...)
